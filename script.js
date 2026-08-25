@@ -1,3 +1,7 @@
+// ==================== SUPABASE KONFIGURATION ====================
+const SUPABASE_URL = 'https://hhegggvsrcwyzbpyblxt.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoZWdnZ3ZzcmN3eXpicHlibHh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2NDM1NDcsImV4cCI6MjEwMzIxOTU0N30.0U4wV6tJq1BpFPvd-g7KmCt1DLjXug6e8UdKQJDjEO4';
+
 // ==================== STATE ====================
 let questions = [];
 let quizQueue = [];
@@ -5,6 +9,104 @@ let currentQuestionIndex = 0;
 let score = 0;
 let categories = [];
 let quizAnswerResults = [];
+
+// ==================== SUPABASE CLIENT ====================
+async function supabaseQuery(sql) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/questions`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation'
+    },
+    body: JSON.stringify(sql)
+  });
+  return await response.json();
+}
+
+async function loadQuestionsFromDB() {
+  try {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/questions?order=created_at.desc`, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`
+      }
+    });
+    const data = await response.json();
+    return data.map(q => ({
+      id: q.id,
+      text: q.text,
+      category: q.category,
+      image: q.image,
+      answers: q.answers,
+      correctIndex: q.correct_index,
+      stats: { correct: q.stats_correct || 0, wrong: q.stats_wrong || 0 }
+    }));
+  } catch (error) {
+    console.error('Fehler beim Laden:', error);
+    return [];
+  }
+}
+
+async function saveQuestionToDB(question) {
+  try {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/questions`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text: question.text,
+        category: question.category,
+        image: question.image,
+        answers: question.answers,
+        correct_index: question.correctIndex,
+        stats_correct: question.stats.correct,
+        stats_wrong: question.stats.wrong
+      })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Fehler beim Speichern:', error);
+    return null;
+  }
+}
+
+async function updateQuestionStatsInDB(id, stats) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/questions?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        stats_correct: stats.correct,
+        stats_wrong: stats.wrong
+      })
+    });
+  } catch (error) {
+    console.error('Fehler beim Update:', error);
+  }
+}
+
+async function deleteQuestionFromDB(id) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/questions?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`
+      }
+    });
+  } catch (error) {
+    console.error('Fehler beim Löschen:', error);
+  }
+}
 
 // ==================== DOM ELEMENTS ====================
 const btnEditor = document.getElementById('btn-editor');
@@ -58,15 +160,19 @@ const statsFilterPerformance = document.getElementById('stats-filter-performance
 const resetStatsBtn = document.getElementById('reset-stats');
 
 // ==================== INIT ====================
-loadQuestions();
-migrateQuestions();
-extractCategories();
-renderQuestionsList();
-renderCategoryFilters();
-renderCategorySuggestions();
-loadTheme();
+initApp();
 
-// ==================== THEME TOGGLE ====================
+async function initApp() {
+  questions = await loadQuestionsFromDB();
+  migrateQuestions();
+  extractCategories();
+  renderCategoryFilters();
+  renderCategorySuggestions();
+  renderQuestionsList();
+  loadTheme();
+}
+
+// ==================== THEME ====================
 themeToggle.addEventListener('click', () => {
   const currentTheme = document.documentElement.getAttribute('data-theme');
   const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
@@ -104,27 +210,27 @@ btnStats.addEventListener('click', () => {
   renderStatistics();
 });
 
-// ==================== EDITOR: BILD-PREVIEW ====================
-questionImage.addEventListener('change', (e) => {
-  const file = e.target.files[0];
+// ==================== EDITOR: BILD ====================
+questionImage.addEventListener('change', (event) => {
+  const file = event.target.files[0];
   imagePreview.innerHTML = '';
-  if (file) {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = document.createElement('img');
-      img.src = event.target.result;
-      imagePreview.appendChild(img);
-    };
-    reader.readAsDataURL(file);
-  }
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (loadEvent) => {
+    const image = document.createElement('img');
+    image.src = loadEvent.target.result;
+    imagePreview.appendChild(image);
+  };
+  reader.readAsDataURL(file);
 });
 
 // ==================== EDITOR: KATEGORIEN ====================
 function extractCategories() {
   const categorySet = new Set();
-  questions.forEach(q => {
-    if (q.category && q.category.trim()) {
-      categorySet.add(q.category.trim());
+  questions.forEach(question => {
+    if (question.category && question.category.trim()) {
+      categorySet.add(question.category.trim());
     }
   });
   categories = Array.from(categorySet).sort((a, b) => a.localeCompare(b, 'de'));
@@ -132,43 +238,41 @@ function extractCategories() {
 
 function renderCategorySuggestions() {
   categorySuggestions.innerHTML = '';
-  if (categories.length === 0) return;
-
-  categories.forEach(cat => {
+  categories.forEach(category => {
     const suggestion = document.createElement('span');
     suggestion.className = 'category-suggestion';
-    suggestion.textContent = cat;
+    suggestion.textContent = category;
     suggestion.addEventListener('click', () => {
-      questionCategory.value = cat;
+      questionCategory.value = category;
     });
     categorySuggestions.appendChild(suggestion);
   });
 }
 
 function renderCategoryFilters() {
-  const previousEditorFilter = filterCategory.value;
-  const previousQuizFilter = quizCategoryFilter.value;
-  const previousStatsFilter = statsFilterCategory.value;
+  const editorValue = filterCategory.value;
+  const quizValue = quizCategoryFilter.value;
+  const statsValue = statsFilterCategory.value;
   const options = '<option value="">Alle Kategorien</option>' +
-    categories.map(cat => `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`).join('');
+    categories.map(category => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join('');
 
   filterCategory.innerHTML = options;
   quizCategoryFilter.innerHTML = options;
   statsFilterCategory.innerHTML = options;
 
-  filterCategory.value = categories.includes(previousEditorFilter) ? previousEditorFilter : '';
-  quizCategoryFilter.value = categories.includes(previousQuizFilter) ? previousQuizFilter : '';
-  statsFilterCategory.value = categories.includes(previousStatsFilter) ? previousStatsFilter : '';
+  filterCategory.value = categories.includes(editorValue) ? editorValue : '';
+  quizCategoryFilter.value = categories.includes(quizValue) ? quizValue : '';
+  statsFilterCategory.value = categories.includes(statsValue) ? statsValue : '';
 }
 
-// ==================== EDITOR: ANTWORTEN HINZUFÜGEN/ENTFERNEN ====================
+// ==================== EDITOR: ANTWORTEN ====================
 addAnswerBtn.addEventListener('click', () => {
-  const count = answersContainer.querySelectorAll('.answer-row').length;
+  const index = answersContainer.querySelectorAll('.answer-row').length;
   const row = document.createElement('div');
   row.className = 'answer-row';
   row.innerHTML = `
-    <input type="text" class="answer-input" placeholder="Antwort ${count + 1}" required />
-    <label><input type="radio" name="correct-answer" value="${count}" /> richtig</label>
+    <input type="text" class="answer-input" placeholder="Antwort ${index + 1}" required />
+    <label><input type="radio" name="correct-answer" value="${index}" /> richtig</label>
     <button type="button" class="remove-answer">&times;</button>
   `;
   answersContainer.appendChild(row);
@@ -177,58 +281,51 @@ addAnswerBtn.addEventListener('click', () => {
 
 function updateRemoveButtons() {
   const rows = answersContainer.querySelectorAll('.answer-row');
-  rows.forEach((row) => {
+  rows.forEach(row => {
     row.querySelector('.remove-answer').disabled = rows.length <= 2;
   });
 }
 
-answersContainer.addEventListener('click', (e) => {
-  if (e.target.classList.contains('remove-answer')) {
-    const row = e.target.closest('.answer-row');
-    if (answersContainer.querySelectorAll('.answer-row').length > 2) {
-      row.remove();
-      reindexAnswers();
-    }
-  }
+answersContainer.addEventListener('click', (event) => {
+  if (!event.target.classList.contains('remove-answer')) return;
+  const rows = answersContainer.querySelectorAll('.answer-row');
+  if (rows.length <= 2) return;
+  event.target.closest('.answer-row').remove();
+  reindexAnswers();
+  updateRemoveButtons();
 });
 
 function reindexAnswers() {
-  const rows = answersContainer.querySelectorAll('.answer-row');
-  let selectedIndex = 0;
-
-  rows.forEach((row, idx) => {
+  const rows = [...answersContainer.querySelectorAll('.answer-row')];
+  const selectedRow = rows.find(row => row.querySelector('input[type="radio"]').checked) || rows[0];
+  rows.forEach((row, index) => {
+    row.querySelector('.answer-input').placeholder = `Antwort ${index + 1}`;
     const radio = row.querySelector('input[type="radio"]');
-    if (radio.checked) selectedIndex = idx;
-  });
-
-  rows.forEach((row, idx) => {
-    row.querySelector('.answer-input').placeholder = `Antwort ${idx + 1}`;
-    const radio = row.querySelector('input[type="radio"]');
-    radio.value = idx;
-    radio.checked = idx === selectedIndex;
+    radio.value = index;
+    radio.checked = row === selectedRow;
   });
 }
 
-// ==================== EDITOR: FRAGE SPEICHERN ====================
-questionForm.addEventListener('submit', (e) => {
-  e.preventDefault();
+// ==================== EDITOR: SPEICHERN ====================
+questionForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
 
-  const answers = [];
-  let correctIndex = 0;
-  const rows = answersContainer.querySelectorAll('.answer-row');
+  const answerRows = [...answersContainer.querySelectorAll('.answer-row')];
+  const selectedRow = answerRows.find(row => row.querySelector('input[type="radio"]').checked);
+  const answers = answerRows.map(row => row.querySelector('.answer-input').value.trim());
 
-  rows.forEach((row) => {
-    const text = row.querySelector('.answer-input').value.trim();
-    if (!text) return;
+  if (answers.some(answer => !answer)) {
+    alert('Bitte fülle alle Antwortmöglichkeiten aus.');
+    return;
+  }
 
-    answers.push(text);
-    if (row.querySelector('input[type="radio"]').checked) {
-      correctIndex = answers.length - 1;
-    }
-  });
+  const correctIndex = answerRows.indexOf(selectedRow);
+  if (correctIndex === -1) {
+    alert('Bitte markiere eine richtige Antwort.');
+    return;
+  }
 
-  const questionData = {
-    id: Date.now(),
+  const question = {
     text: questionText.value.trim(),
     category: questionCategory.value.trim() || null,
     image: imagePreview.querySelector('img')?.src || null,
@@ -237,15 +334,24 @@ questionForm.addEventListener('submit', (e) => {
     stats: { correct: 0, wrong: 0 }
   };
 
-  questions.push(questionData);
-  saveQuestions();
-  extractCategories();
-  renderCategoryFilters();
-  renderCategorySuggestions();
-  renderQuestionsList();
-  questionForm.reset();
-  imagePreview.innerHTML = '';
-  resetAnswersToDefault();
+  const saved = await saveQuestionToDB(question);
+  if (saved && saved[0]) {
+    questions.unshift({
+      id: saved[0].id,
+      ...question,
+      stats: { correct: 0, wrong: 0 }
+    });
+    extractCategories();
+    renderCategoryFilters();
+    renderCategorySuggestions();
+    renderQuestionsList();
+    questionForm.reset();
+    imagePreview.innerHTML = '';
+    resetAnswersToDefault();
+    alert('Frage erfolgreich gespeichert! ✓');
+  } else {
+    alert('Fehler beim Speichern. Bitte prüfe die Supabase-Einstellungen.');
+  }
 });
 
 function resetAnswersToDefault() {
@@ -270,17 +376,18 @@ clearFormBtn.addEventListener('click', () => {
   resetAnswersToDefault();
 });
 
-// ==================== EDITOR: FRAGEN LISTE ====================
+// ==================== EDITOR: FRAGENLISTE ====================
 filterCategory.addEventListener('change', renderQuestionsList);
 
 function renderQuestionsList() {
-  questionsList.innerHTML = '';
   const selectedCategory = filterCategory.value;
-  const filteredQuestions = selectedCategory
-    ? questions.filter(q => q.category === selectedCategory)
+  const visibleQuestions = selectedCategory
+    ? questions.filter(question => question.category === selectedCategory)
     : questions;
 
-  if (filteredQuestions.length === 0) {
+  questionsList.innerHTML = '';
+
+  if (visibleQuestions.length === 0) {
     const message = questions.length === 0
       ? 'Noch keine Fragen gespeichert.'
       : 'Keine Fragen in dieser Kategorie.';
@@ -288,35 +395,40 @@ function renderQuestionsList() {
     return;
   }
 
-  filteredQuestions.forEach((q, idx) => {
+  visibleQuestions.forEach((question, index) => {
     const card = document.createElement('div');
     card.className = 'question-card';
 
-    let html = '<div class="question-card-header">';
-    html += `<strong>Frage ${idx + 1}:</strong>`;
-    if (q.category) html += `<span class="category-badge">${escapeHtml(q.category)}</span>`;
-    html += '</div>';
-    html += escapeHtml(q.text);
+    const category = question.category
+      ? `<span class="category-badge">${escapeHtml(question.category)}</span>`
+      : '';
+    const image = question.image
+      ? `<img src="${question.image}" alt="Fragebild" />`
+      : '';
+    const answers = question.answers.map((answer, answerIndex) => {
+      const marker = answerIndex === question.correctIndex ? '●' : '○';
+      return `<li>${marker} ${escapeHtml(answer)}</li>`;
+    }).join('');
 
-    if (q.image) html += `<img src="${q.image}" alt="Fragebild" />`;
+    card.innerHTML = `
+      <div class="question-card-header">
+        <strong>Frage ${index + 1}:</strong>
+        ${category}
+      </div>
+      <p>${escapeHtml(question.text)}</p>
+      ${image}
+      <ul>${answers}</ul>
+      <button class="delete-question" data-id="${question.id}">Frage löschen</button>
+    `;
 
-    html += '<ul>';
-    q.answers.forEach((answer, answerIndex) => {
-      const marker = answerIndex === q.correctIndex ? '●' : '○';
-      html += `<li>${marker} ${escapeHtml(answer)}</li>`;
-    });
-    html += '</ul>';
-    html += `<button class="delete-question" data-id="${q.id}">Frage löschen</button>`;
-
-    card.innerHTML = html;
     questionsList.appendChild(card);
   });
 
-  questionsList.querySelectorAll('.delete-question').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = Number(btn.dataset.id);
-      questions = questions.filter(q => q.id !== id);
-      saveQuestions();
+  questionsList.querySelectorAll('.delete-question').forEach(button => {
+    button.addEventListener('click', async () => {
+      const id = Number(button.dataset.id);
+      await deleteQuestionFromDB(id);
+      questions = questions.filter(question => question.id !== id);
       extractCategories();
       renderCategoryFilters();
       renderCategorySuggestions();
@@ -325,38 +437,24 @@ function renderQuestionsList() {
   });
 }
 
-// ==================== LOCAL STORAGE ====================
-function saveQuestions() {
-  localStorage.setItem('pruefungsfragen', JSON.stringify(questions));
-}
-
-function loadQuestions() {
-  const raw = localStorage.getItem('pruefungsfragen');
-  if (!raw) return;
-
-  try {
-    questions = JSON.parse(raw);
-  } catch {
-    questions = [];
-  }
-}
-
 function migrateQuestions() {
   let changed = false;
-
-  questions.forEach(q => {
-    if (!q.stats || typeof q.stats.correct !== 'number' || typeof q.stats.wrong !== 'number') {
-      q.stats = { correct: 0, wrong: 0 };
+  questions.forEach(question => {
+    if (!question.stats || typeof question.stats.correct !== 'number' || typeof question.stats.wrong !== 'number') {
+      question.stats = { correct: 0, wrong: 0 };
       changed = true;
     }
   });
-
-  if (changed) saveQuestions();
+  if (changed) {
+    questions.forEach(q => updateQuestionStatsInDB(q.id, q.stats));
+  }
 }
 
-// ==================== QUIZ: START / SCHWACHE FRAGEN ====================
-startQuizBtn.addEventListener('click', () => startQuiz());
-restartQuizBtn.addEventListener('click', () => startQuiz());
+// ==================== QUIZ ====================
+startQuizBtn.addEventListener('click', startQuiz);
+restartQuizBtn.addEventListener('click', startQuiz);
+quitQuizBtn.addEventListener('click', showQuizStart);
+nextQuestionBtn.addEventListener('click', goToNextQuestion);
 
 function startQuiz() {
   if (questions.length === 0) {
@@ -365,9 +463,9 @@ function startQuiz() {
   }
 
   const selectedCategory = quizCategoryFilter.value;
-  const quizMode = quizModeFilter.value;
+  const mode = quizModeFilter.value;
   let selectedQuestions = selectedCategory
-    ? questions.filter(q => q.category === selectedCategory)
+    ? questions.filter(question => question.category === selectedCategory)
     : [...questions];
 
   if (selectedQuestions.length === 0) {
@@ -375,7 +473,7 @@ function startQuiz() {
     return;
   }
 
-  if (quizMode === 'weak') {
+  if (mode === 'weak') {
     selectedQuestions = createWeakQuestionQueue(selectedQuestions);
   }
 
@@ -388,35 +486,26 @@ function startQuiz() {
 }
 
 function createWeakQuestionQueue(sourceQuestions) {
-  const weightedQueue = [];
-
+  const queue = [];
   sourceQuestions.forEach(question => {
-    const { correct, wrong } = question.stats;
-    const answered = correct + wrong;
-    const accuracy = answered === 0 ? 0 : correct / answered;
-
-    // Neue und häufig falsche Fragen erhalten mehr Plätze in der Quiz-Warteschlange.
+    const stats = getQuestionPerformance(question);
     let repetitions = 1;
-    if (answered === 0) repetitions = 2;
-    else if (accuracy < 0.4) repetitions = 4;
-    else if (accuracy < 0.7) repetitions = 3;
-    else if (accuracy < 0.9) repetitions = 2;
-
-    for (let i = 0; i < repetitions; i++) {
-      weightedQueue.push(question);
-    }
+    if (stats.answered === 0) repetitions = 2;
+    else if (stats.accuracy < 40) repetitions = 4;
+    else if (stats.accuracy < 70) repetitions = 3;
+    else if (stats.accuracy < 90) repetitions = 2;
+    for (let i = 0; i < repetitions; i++) queue.push(question);
   });
-
-  return weightedQueue;
+  return queue;
 }
 
 function shuffleArray(items) {
-  const array = [...items];
-  for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [array[i], array[j]] = [array[j], array[i]];
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
   }
-  return array;
+  return shuffled;
 }
 
 function showQuizStart() {
@@ -435,14 +524,10 @@ function showQuizEnd() {
   quizStart.style.display = 'none';
   quizActive.style.display = 'none';
   quizEnd.style.display = 'block';
-
   quizResult.textContent = `Du hast ${score} von ${quizQueue.length} Quizrunden richtig beantwortet.`;
   renderQuizCategoryResult();
 }
 
-quitQuizBtn.addEventListener('click', showQuizStart);
-
-// ==================== QUIZ: FRAGE ANZEIGEN ====================
 function showQuestion() {
   const question = quizQueue[currentQuestionIndex];
   quizProgress.textContent = `Frage ${currentQuestionIndex + 1} von ${quizQueue.length}`;
@@ -461,17 +546,16 @@ function showQuestion() {
   quizFeedback.style.display = 'none';
   nextQuestionBtn.style.display = 'none';
 
-  question.answers.forEach((answer, answerIndex) => {
+  question.answers.forEach((answer, index) => {
     const button = document.createElement('button');
     button.className = 'quiz-answer-btn';
     button.textContent = answer;
-    button.addEventListener('click', () => handleAnswer(answerIndex, button));
+    button.addEventListener('click', () => handleAnswer(index, button));
     quizAnswers.appendChild(button);
   });
 }
 
-// ==================== QUIZ: ANTWORT PRÜFEN ====================
-function handleAnswer(selectedIndex, selectedButton) {
+async function handleAnswer(selectedIndex, selectedButton) {
   const question = quizQueue[currentQuestionIndex];
   const answerButtons = quizAnswers.querySelectorAll('.quiz-answer-btn');
   answerButtons.forEach(button => button.disabled = true);
@@ -483,8 +567,8 @@ function handleAnswer(selectedIndex, selectedButton) {
     selectedButton.classList.add('correct');
     quizFeedback.textContent = 'Richtig! 🎉';
     quizFeedback.className = 'quiz-feedback show correct';
-    score++;
     question.stats.correct++;
+    score++;
   } else {
     selectedButton.classList.add('wrong');
     answerButtons[question.correctIndex].classList.add('correct');
@@ -498,41 +582,39 @@ function handleAnswer(selectedIndex, selectedButton) {
     correct: isCorrect
   });
 
-  saveQuestions();
+  await updateQuestionStatsInDB(question.id, question.stats);
   nextQuestionBtn.style.display = 'inline-block';
 }
 
-nextQuestionBtn.addEventListener('click', () => {
+function goToNextQuestion() {
   currentQuestionIndex++;
   if (currentQuestionIndex >= quizQueue.length) {
     showQuizEnd();
   } else {
     showQuestion();
   }
-});
+}
 
 function renderQuizCategoryResult() {
   const categoryStats = {};
-
   quizAnswerResults.forEach(result => {
     if (!categoryStats[result.category]) {
-      categoryStats[result.category] = { total: 0, correct: 0 };
+      categoryStats[result.category] = { correct: 0, total: 0 };
     }
     categoryStats[result.category].total++;
     if (result.correct) categoryStats[result.category].correct++;
   });
 
-  if (Object.keys(categoryStats).length === 0) {
+  const entries = Object.entries(categoryStats);
+  if (entries.length === 0) {
     quizCategoryResult.innerHTML = '';
     return;
   }
 
-  let html = '<h4>Ergebnis nach Kategorien:</h4><ul>';
-  Object.entries(categoryStats).forEach(([category, stats]) => {
-    html += `<li>${escapeHtml(category)}: ${stats.correct}/${stats.total} richtig</li>`;
-  });
-  html += '</ul>';
-  quizCategoryResult.innerHTML = html;
+  const rows = entries.map(([category, stats]) =>
+    `<li>${escapeHtml(category)}: ${stats.correct}/${stats.total} richtig</li>`
+  ).join('');
+  quizCategoryResult.innerHTML = `<h4>Ergebnis nach Kategorien:</h4><ul>${rows}</ul>`;
 }
 
 // ==================== STATISTIK ====================
@@ -540,12 +622,21 @@ statsFilterCategory.addEventListener('change', renderDetailedQuestionStats);
 statsFilterPerformance.addEventListener('change', renderDetailedQuestionStats);
 resetStatsBtn.addEventListener('click', resetStatistics);
 
+function getQuestionPerformance(question) {
+  const stats = question.stats || { correct: 0, wrong: 0 };
+  const correct = Number(stats.correct) || 0;
+  const wrong = Number(stats.wrong) || 0;
+  const answered = correct + wrong;
+  const accuracy = answered === 0 ? null : Math.round((correct / answered) * 100);
+  return { correct, wrong, answered, accuracy };
+}
+
 function renderStatistics() {
-  const totals = questions.reduce((sum, question) => {
-    const stats = question.stats || { correct: 0, wrong: 0 };
-    sum.correct += stats.correct;
-    sum.wrong += stats.wrong;
-    return sum;
+  const totals = questions.reduce((result, question) => {
+    const stats = getQuestionPerformance(question);
+    result.correct += stats.correct;
+    result.wrong += stats.wrong;
+    return result;
   }, { correct: 0, wrong: 0 });
 
   const answered = totals.correct + totals.wrong;
@@ -560,14 +651,6 @@ function renderStatistics() {
   renderWeakQuestions();
   renderCategoryStatistics();
   renderDetailedQuestionStats();
-}
-
-function getQuestionPerformance(question) {
-  const stats = question.stats || { correct: 0, wrong: 0 };
-  const answered = stats.correct + stats.wrong;
-  const accuracy = answered === 0 ? null : Math.round((stats.correct / answered) * 100);
-
-  return { correct: stats.correct, wrong: stats.wrong, answered, accuracy };
 }
 
 function renderWeakQuestions() {
@@ -585,33 +668,21 @@ function renderWeakQuestions() {
     return;
   }
 
-  weakQuestionsList.innerHTML = weakQuestions.map(question => createQuestionStatCard(question)).join('');
+  weakQuestionsList.innerHTML = weakQuestions.map(createQuestionStatCard).join('');
 }
 
 function renderCategoryStatistics() {
-  const categoryData = {};
-
+  const data = {};
   questions.forEach(question => {
     const category = question.category || 'Ohne Kategorie';
     const stats = getQuestionPerformance(question);
-
-    if (!categoryData[category]) {
-      categoryData[category] = { correct: 0, wrong: 0, questions: 0 };
-    }
-
-    categoryData[category].correct += stats.correct;
-    categoryData[category].wrong += stats.wrong;
-    categoryData[category].questions++;
+    if (!data[category]) data[category] = { correct: 0, wrong: 0, questions: 0 };
+    data[category].correct += stats.correct;
+    data[category].wrong += stats.wrong;
+    data[category].questions++;
   });
 
-  const entries = Object.entries(categoryData).sort(([, a], [, b]) => {
-    const answeredA = a.correct + a.wrong;
-    const answeredB = b.correct + b.wrong;
-    const accuracyA = answeredA === 0 ? -1 : a.correct / answeredA;
-    const accuracyB = answeredB === 0 ? -1 : b.correct / answeredB;
-    return accuracyA - accuracyB;
-  });
-
+  const entries = Object.entries(data);
   if (entries.length === 0) {
     categoryStatsList.innerHTML = '<div class="empty-stats">Noch keine Kategorien vorhanden.</div>';
     return;
@@ -621,7 +692,7 @@ function renderCategoryStatistics() {
     const answered = stats.correct + stats.wrong;
     const accuracy = answered === 0 ? 0 : Math.round((stats.correct / answered) * 100);
     const level = accuracy < 50 ? 'low' : accuracy < 75 ? 'medium' : '';
-    const resultText = answered === 0
+    const text = answered === 0
       ? `${stats.questions} Fragen, noch nicht beantwortet`
       : `${stats.correct}/${answered} richtig (${accuracy}%)`;
 
@@ -629,67 +700,56 @@ function renderCategoryStatistics() {
       <div class="category-stat-row">
         <span class="category-stat-name">${escapeHtml(category)}</span>
         <div class="progress-bar"><div class="progress-bar-fill ${level}" style="width:${accuracy}%"></div></div>
-        <span class="category-stat-percent">${resultText}</span>
+        <span class="category-stat-percent">${text}</span>
       </div>
     `;
   }).join('');
 }
 
 function renderDetailedQuestionStats() {
-  const selectedCategory = statsFilterCategory.value;
-  const selectedPerformance = statsFilterPerformance.value;
-
-  let filteredQuestions = selectedCategory
-    ? questions.filter(question => question.category === selectedCategory)
+  const category = statsFilterCategory.value;
+  const performance = statsFilterPerformance.value;
+  let visibleQuestions = category
+    ? questions.filter(question => question.category === category)
     : [...questions];
 
-  if (selectedPerformance === 'weak') {
-    filteredQuestions = filteredQuestions.filter(question => {
+  if (performance === 'weak') {
+    visibleQuestions = visibleQuestions.filter(question => {
       const stats = getQuestionPerformance(question);
-      return stats.wrong > stats.correct || stats.wrong > 0 && stats.answered === 0;
+      return stats.wrong > stats.correct;
     });
   }
 
-  if (selectedPerformance === 'good') {
-    filteredQuestions = filteredQuestions.filter(question => {
+  if (performance === 'good') {
+    visibleQuestions = visibleQuestions.filter(question => {
       const stats = getQuestionPerformance(question);
       return stats.answered > 0 && stats.correct >= stats.wrong;
     });
   }
 
-  filteredQuestions.sort((a, b) => {
-    const statsA = getQuestionPerformance(a);
-    const statsB = getQuestionPerformance(b);
-    if (statsB.wrong !== statsA.wrong) return statsB.wrong - statsA.wrong;
-    return (statsA.accuracy ?? -1) - (statsB.accuracy ?? -1);
-  });
+  visibleQuestions.sort((a, b) => getQuestionPerformance(b).wrong - getQuestionPerformance(a).wrong);
 
-  if (filteredQuestions.length === 0) {
+  if (visibleQuestions.length === 0) {
     allQuestionsStats.innerHTML = '<div class="empty-stats">Keine Fragen für diesen Filter vorhanden.</div>';
     return;
   }
 
-  allQuestionsStats.innerHTML = filteredQuestions.map(question => createQuestionStatCard(question)).join('');
+  allQuestionsStats.innerHTML = visibleQuestions.map(createQuestionStatCard).join('');
 }
 
 function createQuestionStatCard(question) {
   const stats = getQuestionPerformance(question);
-  let performanceClass = 'neutral';
-
-  if (stats.answered > 0) {
-    performanceClass = stats.wrong > stats.correct ? 'weak' : 'good';
-  }
-
+  const performanceClass = stats.answered === 0
+    ? 'neutral'
+    : stats.wrong > stats.correct ? 'weak' : 'good';
+  const category = question.category || 'Ohne Kategorie';
   const accuracyText = stats.accuracy === null ? 'Noch nicht beantwortet' : `${stats.accuracy}% richtig`;
-  const categoryBadge = question.category
-    ? `<span class="category-badge">${escapeHtml(question.category)}</span>`
-    : '<span class="category-badge">Ohne Kategorie</span>';
 
   return `
     <article class="question-stat-card ${performanceClass}">
       <div class="question-stat-header">
         <strong>Frage</strong>
-        ${categoryBadge}
+        <span class="category-badge">${escapeHtml(category)}</span>
       </div>
       <p class="question-stat-text">${escapeHtml(question.text)}</p>
       <div class="question-stat-values">
@@ -701,20 +761,20 @@ function createQuestionStatCard(question) {
   `;
 }
 
-function resetStatistics() {
+async function resetStatistics() {
   const confirmed = window.confirm('Möchtest du wirklich alle Antwort-Statistiken zurücksetzen? Deine Fragen bleiben erhalten.');
   if (!confirmed) return;
 
   questions.forEach(question => {
     question.stats = { correct: 0, wrong: 0 };
+    updateQuestionStatsInDB(question.id, question.stats);
   });
 
-  saveQuestions();
   renderStatistics();
 }
 
-function escapeHtml(str) {
-  return String(str)
+function escapeHtml(value) {
+  return String(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
