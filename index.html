@@ -2,68 +2,116 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Pr&uuml;fungsvorbereitung &ndash; Fragen-Editor &amp; Quiz</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prüfungsvorbereitung</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Vollbild-Login -->
+  <div id="login-overlay" class="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <div class="login-card">
+      <div class="login-logo">📚</div>
+      <h1 id="login-title">Prüfungsvorbereitung</h1>
+      <p class="login-subtitle">Melde dich mit deinem Namen und deiner PIN an.</p>
+
+      <form id="login-form">
+        <label for="login-name">Name</label>
+        <select id="login-name" required>
+          <option value="">Name auswählen …</option>
+        </select>
+
+        <label for="login-pin">Vierstellige PIN</label>
+        <input id="login-pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="••••" autocomplete="current-password" required />
+
+        <p id="login-error" class="form-error" aria-live="polite"></p>
+        <button type="submit" id="login-submit">Anmelden</button>
+      </form>
+    </div>
+  </div>
+
   <header>
     <div class="header-content">
       <div class="header-top">
-        <h1>📚 Pr&uuml;fungsvorbereitung</h1>
-        <button id="theme-toggle" class="theme-toggle" aria-label="Dark Mode umschalten">
-          <span class="theme-icon">🌙</span>
-        </button>
+        <div>
+          <h1>📚 Prüfungsvorbereitung</h1>
+          <p class="header-subtitle">Gemeinsam lernen. Besser vorbereitet sein.</p>
+        </div>
+        <div class="header-actions">
+          <div class="user-menu">
+            <span id="current-user-label" class="current-user-label">Nicht angemeldet</span>
+            <button id="switch-profile" class="secondary-small" type="button">Profil wechseln</button>
+          </div>
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Darstellung umschalten">
+            <span class="theme-icon">🌙</span>
+          </button>
+        </div>
       </div>
-      <nav>
-        <button id="btn-editor" class="active">Fragen-Editor</button>
-        <button id="btn-quiz">Lern- &amp; Quiz-Modus</button>
-        <button id="btn-stats">Statistik</button>
+
+      <nav aria-label="Hauptnavigation">
+        <button id="btn-editor" class="active" type="button">Fragen-Editor</button>
+        <button id="btn-quiz" type="button">Lern- &amp; Quiz-Modus</button>
+        <button id="btn-stats" type="button">Meine Statistik</button>
       </nav>
     </div>
   </header>
 
   <main>
-    <!-- ==================== EDITOR ==================== -->
+    <!-- Editor -->
     <section id="editor-section">
-      <h2>Neue Frage anlegen</h2>
-      <form id="question-form">
-        <label for="question-text">Frage:</label>
-        <textarea id="question-text" rows="3" required placeholder="Gib hier deine Pr&uuml;fungsfrage ein..."></textarea>
+      <div class="section-heading">
+        <div>
+          <h2>Neue Frage anlegen</h2>
+          <p>Fragen sind für alle Mitglieder sichtbar.</p>
+        </div>
+      </div>
 
-        <label for="question-category">Kategorie (optional):</label>
-        <input type="text" id="question-category" placeholder="z. B. PLC, Elektrotechnik, PROFINET" />
+      <form id="question-form">
+        <label for="question-text">Frage</label>
+        <textarea id="question-text" rows="3" required placeholder="Gib hier deine Prüfungsfrage ein …"></textarea>
+
+        <label for="question-category">Kategorie <span class="optional">(optional)</span></label>
+        <input type="text" id="question-category" placeholder="z. B. PLC, Elektrotechnik oder PROFINET" />
         <div id="category-suggestions" class="category-suggestions"></div>
 
-        <label for="question-image">Bild (optional):</label>
+        <label for="question-image">Bild <span class="optional">(optional)</span></label>
         <input type="file" id="question-image" accept="image/*" />
         <div id="image-preview" class="image-preview"></div>
 
-        <h3>Antwortm&ouml;glichkeiten (Multiple Choice)</h3>
+        <div class="answers-heading">
+          <div>
+            <h3>Antwortmöglichkeiten</h3>
+            <p>Markiere genau eine richtige Antwort.</p>
+          </div>
+        </div>
+
         <div id="answers-container">
           <div class="answer-row">
             <input type="text" class="answer-input" placeholder="Antwort 1" required />
-            <label><input type="radio" name="correct-answer" value="0" checked /> richtig</label>
-            <button type="button" class="remove-answer" disabled>&times;</button>
+            <label class="correct-choice"><input type="radio" name="correct-answer" value="0" checked /> Richtig</label>
+            <button type="button" class="remove-answer" disabled aria-label="Antwort entfernen">&times;</button>
           </div>
           <div class="answer-row">
             <input type="text" class="answer-input" placeholder="Antwort 2" required />
-            <label><input type="radio" name="correct-answer" value="1" /> richtig</label>
-            <button type="button" class="remove-answer">&times;</button>
+            <label class="correct-choice"><input type="radio" name="correct-answer" value="1" /> Richtig</label>
+            <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
           </div>
         </div>
-        <button type="button" id="add-answer">+ Antwort hinzuf&uuml;gen</button>
+
+        <button type="button" id="add-answer" class="outline-button">+ Antwort hinzufügen</button>
 
         <div class="form-actions">
           <button type="submit">Frage speichern</button>
-          <button type="button" id="clear-form">Formular leeren</button>
+          <button type="button" id="clear-form" class="secondary-button">Formular leeren</button>
         </div>
       </form>
 
       <div class="questions-header">
-        <h3>Gespeicherte Fragen</h3>
+        <div>
+          <h3>Gespeicherte Fragen</h3>
+          <p id="question-count" class="muted-text"></p>
+        </div>
         <div class="filter-controls">
-          <select id="filter-category">
+          <select id="filter-category" aria-label="Fragen nach Kategorie filtern">
             <option value="">Alle Kategorien</option>
           </select>
         </div>
@@ -71,97 +119,90 @@
       <div id="questions-list"></div>
     </section>
 
-    <!-- ==================== QUIZ ==================== -->
+    <!-- Quiz -->
     <section id="quiz-section" style="display:none;">
-      <h2>Lern- &amp; Quiz-Modus</h2>
       <div id="quiz-start">
-        <p>Hier kannst du deine gespeicherten Fragen als Quiz bearbeiten.</p>
-        <div class="quiz-options">
-          <label for="quiz-category-filter">Kategorie f&uuml;r Quiz:</label>
-          <select id="quiz-category-filter">
-            <option value="">Alle Kategorien</option>
-          </select>
+        <h2>Lern- &amp; Quiz-Modus</h2>
+        <p>Die Reihenfolge wird bei jedem Start zufällig gemischt.</p>
+
+        <div class="quiz-options-grid">
+          <div class="quiz-options">
+            <label for="quiz-category-filter">Kategorie</label>
+            <select id="quiz-category-filter">
+              <option value="">Alle Kategorien</option>
+            </select>
+          </div>
+          <div class="quiz-options">
+            <label for="quiz-mode-filter">Quiz-Modus</label>
+            <select id="quiz-mode-filter">
+              <option value="all">Alle Fragen</option>
+              <option value="weak">Meine schwachen Fragen öfter üben</option>
+            </select>
+          </div>
         </div>
-        <div class="quiz-options">
-          <label for="quiz-mode-filter">Quiz-Modus:</label>
-          <select id="quiz-mode-filter">
-            <option value="all">Alle Fragen</option>
-            <option value="weak">Schwache Fragen &ouml;fter &uuml;ben</option>
-          </select>
-        </div>
-        <button id="start-quiz">Quiz starten</button>
+        <button id="start-quiz" type="button">Quiz starten</button>
       </div>
 
       <div id="quiz-active" style="display:none;">
         <div class="quiz-header">
           <div class="quiz-progress-container">
-            <span id="quiz-progress">Frage 1 von 5</span>
+            <span id="quiz-progress">Frage 1 von 1</span>
             <span id="quiz-category-badge" class="category-badge"></span>
           </div>
-          <button id="quit-quiz">Beenden</button>
+          <button id="quit-quiz" class="secondary-button" type="button">Beenden</button>
         </div>
+
         <div id="quiz-question-container">
           <p id="quiz-question-text" class="quiz-question"></p>
-          <img id="quiz-question-image" src="" alt="" style="display:none; max-width:100%; margin: 10px 0;" />
+          <img id="quiz-question-image" src="" alt="Fragebild" style="display:none;" />
           <div id="quiz-answers"></div>
         </div>
-        <div id="quiz-feedback" class="quiz-feedback"></div>
-        <button id="next-question" style="display:none;">N&auml;chste Frage</button>
+
+        <div id="quiz-feedback" class="quiz-feedback" aria-live="polite"></div>
+        <button id="next-question" type="button" style="display:none;">Nächste Frage</button>
       </div>
 
       <div id="quiz-end" style="display:none;">
-        <h3>Quiz abgeschlossen!</h3>
-        <p id="quiz-result"></p>
+        <h2>Quiz abgeschlossen! 🎉</h2>
+        <p id="quiz-result" class="quiz-result"></p>
         <div id="quiz-category-result" class="quiz-category-result"></div>
-        <button id="restart-quiz">Nochmal spielen</button>
+        <button id="restart-quiz" type="button">Noch einmal spielen</button>
       </div>
     </section>
 
-    <!-- ==================== STATISTIK ==================== -->
+    <!-- Persönliche Statistik -->
     <section id="stats-section" style="display:none;">
-      <h2>📊 Deine Statistik</h2>
-      
-      <div class="stats-overview">
-        <div class="stat-card">
-          <div class="stat-value" id="stat-total-questions">0</div>
-          <div class="stat-label">Gesamte Fragen</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="stat-total-answered">0</div>
-          <div class="stat-label">Insgesamt beantwortet</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="stat-correct">0</div>
-          <div class="stat-label">Richtige Antworten</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="stat-wrong">0</div>
-          <div class="stat-label">Falsche Antworten</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="stat-accuracy">0%</div>
-          <div class="stat-label">Trefferquote</div>
+      <div class="section-heading">
+        <div>
+          <h2>📊 Meine Statistik</h2>
+          <p id="stats-user-info">Deine persönlichen Lernergebnisse.</p>
         </div>
       </div>
 
+      <div class="stats-overview">
+        <div class="stat-card"><div class="stat-value" id="stat-total-questions">0</div><div class="stat-label">Fragen gesamt</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-total-answered">0</div><div class="stat-label">Beantwortet</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-correct">0</div><div class="stat-label">Richtig</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-wrong">0</div><div class="stat-label">Falsch</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-accuracy">0%</div><div class="stat-label">Trefferquote</div></div>
+      </div>
+
       <div class="stats-section">
-        <h3>🔥 Schwache Fragen (h&auml;ufig falsch beantwortet)</h3>
-        <p class="stats-description">Diese Fragen solltest du &ouml;fter &uuml;ben. Sortiert nach der Anzahl der falschen Antworten.</p>
+        <h3>🔥 Meine schwachen Fragen</h3>
+        <p class="stats-description">Diese Fragen hast du besonders oft falsch beantwortet.</p>
         <div id="weak-questions-list"></div>
       </div>
 
       <div class="stats-section">
-        <h3>📈 Statistik nach Kategorien</h3>
+        <h3>📈 Nach Kategorien</h3>
         <div id="category-stats-list"></div>
       </div>
 
       <div class="stats-section">
-        <h3>📝 Alle Fragen im Detail</h3>
-        <div class="filter-controls" style="margin-bottom: 16px;">
-          <select id="stats-filter-category">
-            <option value="">Alle Kategorien</option>
-          </select>
-          <select id="stats-filter-performance">
+        <h3>📝 Fragen im Detail</h3>
+        <div class="filter-controls stats-filters">
+          <select id="stats-filter-category" aria-label="Statistik nach Kategorie filtern"><option value="">Alle Kategorien</option></select>
+          <select id="stats-filter-performance" aria-label="Statistik nach Leistung filtern">
             <option value="">Alle Leistungen</option>
             <option value="weak">Schwache Fragen</option>
             <option value="good">Gute Fragen</option>
@@ -171,7 +212,7 @@
       </div>
 
       <div class="stats-actions">
-        <button id="reset-stats" class="btn-danger">Statistik zur&uuml;cksetzen</button>
+        <button id="reset-stats" class="btn-danger" type="button">Meine Statistik zurücksetzen</button>
       </div>
     </section>
   </main>

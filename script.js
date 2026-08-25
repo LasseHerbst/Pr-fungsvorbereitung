@@ -2,58 +2,77 @@ const SUPABASE_URL = 'https://hhegggvsrcwyzbpyblxt.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_sv3o_ptV675_kwnGUYyVsg_u6JjFDxp';
 
 let questions = [];
+let profiles = [];
+let personalStats = new Map();
+let currentProfile = null;
+let categories = [];
 let quizQueue = [];
+let quizResults = [];
 let currentQuestionIndex = 0;
 let score = 0;
-let categories = [];
-let quizAnswerResults = [];
 
-const btnEditor = document.getElementById('btn-editor');
-const btnQuiz = document.getElementById('btn-quiz');
-const btnStats = document.getElementById('btn-stats');
-const editorSection = document.getElementById('editor-section');
-const quizSection = document.getElementById('quiz-section');
-const statsSection = document.getElementById('stats-section');
-const questionForm = document.getElementById('question-form');
-const questionText = document.getElementById('question-text');
-const questionCategory = document.getElementById('question-category');
-const categorySuggestions = document.getElementById('category-suggestions');
-const questionImage = document.getElementById('question-image');
-const imagePreview = document.getElementById('image-preview');
-const answersContainer = document.getElementById('answers-container');
-const addAnswerBtn = document.getElementById('add-answer');
-const clearFormBtn = document.getElementById('clear-form');
-const questionsList = document.getElementById('questions-list');
-const filterCategory = document.getElementById('filter-category');
-const quizCategoryFilter = document.getElementById('quiz-category-filter');
-const quizModeFilter = document.getElementById('quiz-mode-filter');
-const quizStart = document.getElementById('quiz-start');
-const quizActive = document.getElementById('quiz-active');
-const quizEnd = document.getElementById('quiz-end');
-const startQuizBtn = document.getElementById('start-quiz');
-const quitQuizBtn = document.getElementById('quit-quiz');
-const restartQuizBtn = document.getElementById('restart-quiz');
-const quizProgress = document.getElementById('quiz-progress');
-const quizCategoryBadge = document.getElementById('quiz-category-badge');
-const quizQuestionText = document.getElementById('quiz-question-text');
-const quizQuestionImage = document.getElementById('quiz-question-image');
-const quizAnswers = document.getElementById('quiz-answers');
-const quizFeedback = document.getElementById('quiz-feedback');
-const nextQuestionBtn = document.getElementById('next-question');
-const quizResult = document.getElementById('quiz-result');
-const quizCategoryResult = document.getElementById('quiz-category-result');
-const themeToggle = document.getElementById('theme-toggle');
-const statTotalQuestions = document.getElementById('stat-total-questions');
-const statTotalAnswered = document.getElementById('stat-total-answered');
-const statCorrect = document.getElementById('stat-correct');
-const statWrong = document.getElementById('stat-wrong');
-const statAccuracy = document.getElementById('stat-accuracy');
-const weakQuestionsList = document.getElementById('weak-questions-list');
-const categoryStatsList = document.getElementById('category-stats-list');
-const allQuestionsStats = document.getElementById('all-questions-stats');
-const statsFilterCategory = document.getElementById('stats-filter-category');
-const statsFilterPerformance = document.getElementById('stats-filter-performance');
-const resetStatsBtn = document.getElementById('reset-stats');
+const $ = (selector) => document.querySelector(selector);
+
+const loginOverlay = $('#login-overlay');
+const loginForm = $('#login-form');
+const loginName = $('#login-name');
+const loginPin = $('#login-pin');
+const loginError = $('#login-error');
+const loginSubmit = $('#login-submit');
+const currentUserLabel = $('#current-user-label');
+const switchProfileBtn = $('#switch-profile');
+const themeToggle = $('#theme-toggle');
+
+const btnEditor = $('#btn-editor');
+const btnQuiz = $('#btn-quiz');
+const btnStats = $('#btn-stats');
+const editorSection = $('#editor-section');
+const quizSection = $('#quiz-section');
+const statsSection = $('#stats-section');
+
+const questionForm = $('#question-form');
+const questionText = $('#question-text');
+const questionCategory = $('#question-category');
+const categorySuggestions = $('#category-suggestions');
+const questionImage = $('#question-image');
+const imagePreview = $('#image-preview');
+const answersContainer = $('#answers-container');
+const addAnswerBtn = $('#add-answer');
+const clearFormBtn = $('#clear-form');
+const questionsList = $('#questions-list');
+const questionCount = $('#question-count');
+const filterCategory = $('#filter-category');
+
+const quizStart = $('#quiz-start');
+const quizActive = $('#quiz-active');
+const quizEnd = $('#quiz-end');
+const quizCategoryFilter = $('#quiz-category-filter');
+const quizModeFilter = $('#quiz-mode-filter');
+const startQuizBtn = $('#start-quiz');
+const quitQuizBtn = $('#quit-quiz');
+const restartQuizBtn = $('#restart-quiz');
+const quizProgress = $('#quiz-progress');
+const quizCategoryBadge = $('#quiz-category-badge');
+const quizQuestionText = $('#quiz-question-text');
+const quizQuestionImage = $('#quiz-question-image');
+const quizAnswers = $('#quiz-answers');
+const quizFeedback = $('#quiz-feedback');
+const nextQuestionBtn = $('#next-question');
+const quizResult = $('#quiz-result');
+const quizCategoryResult = $('#quiz-category-result');
+
+const statsUserInfo = $('#stats-user-info');
+const statTotalQuestions = $('#stat-total-questions');
+const statTotalAnswered = $('#stat-total-answered');
+const statCorrect = $('#stat-correct');
+const statWrong = $('#stat-wrong');
+const statAccuracy = $('#stat-accuracy');
+const weakQuestionsList = $('#weak-questions-list');
+const categoryStatsList = $('#category-stats-list');
+const allQuestionsStats = $('#all-questions-stats');
+const statsFilterCategory = $('#stats-filter-category');
+const statsFilterPerformance = $('#stats-filter-performance');
+const resetStatsBtn = $('#reset-stats');
 
 async function api(path, options = {}) {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -68,31 +87,41 @@ async function api(path, options = {}) {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Datenbankfehler (${response.status})`);
+    const errorText = await response.text();
+    throw new Error(errorText || `Datenbankfehler (${response.status})`);
   }
 
-  const contentType = response.headers.get('content-type') || '';
-  return contentType.includes('application/json') ? response.json() : null;
+  const type = response.headers.get('content-type') || '';
+  return type.includes('application/json') ? response.json() : null;
 }
 
-async function loadQuestionsFromDB() {
+async function loadProfiles() {
+  return api('profiles?select=id,display_name,pin_code&order=display_name.asc');
+}
+
+async function loadQuestions() {
   const rows = await api('questions?select=*&order=created_at.desc');
   return rows.map(row => ({
     id: row.id,
     text: row.text,
     category: row.category,
     image: row.image,
-    answers: row.answers,
+    answers: row.answers || [],
     correctIndex: row.correct_index,
-    stats: {
-      correct: row.stats_correct || 0,
-      wrong: row.stats_wrong || 0
-    }
   }));
 }
 
-async function saveQuestionToDB(question) {
+async function loadPersonalStats() {
+  if (!currentProfile) return;
+  const rows = await api(`user_question_stats?select=question_id,correct_count,wrong_count,last_answered_at&profile_id=eq.${currentProfile.id}`);
+  personalStats = new Map(rows.map(row => [Number(row.question_id), {
+    correct: Number(row.correct_count) || 0,
+    wrong: Number(row.wrong_count) || 0,
+    lastAnsweredAt: row.last_answered_at || null
+  }]));
+}
+
+async function saveQuestion(question) {
   const rows = await api('questions', {
     method: 'POST',
     body: JSON.stringify({
@@ -108,34 +137,125 @@ async function saveQuestionToDB(question) {
   return rows[0];
 }
 
-async function updateQuestionStatsInDB(id, stats) {
-  await api(`questions?id=eq.${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      stats_correct: stats.correct,
-      stats_wrong: stats.wrong
-    })
-  });
-}
-
-async function deleteQuestionFromDB(id) {
+async function deleteQuestion(id) {
   await api(`questions?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
-async function initApp() {
+async function savePersonalStat(questionId, stats) {
+  const rows = await api('user_question_stats', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify({
+      profile_id: currentProfile.id,
+      question_id: questionId,
+      correct_count: stats.correct,
+      wrong_count: stats.wrong,
+      last_answered_at: new Date().toISOString()
+    })
+  });
+  return rows?.[0] || null;
+}
+
+async function resetPersonalStats() {
+  await api(`user_question_stats?profile_id=eq.${currentProfile.id}`, { method: 'DELETE' });
+  personalStats = new Map();
+}
+
+async function init() {
+  loadTheme();
   try {
-    questions = await loadQuestionsFromDB();
+    [profiles, questions] = await Promise.all([loadProfiles(), loadQuestions()]);
+    fillLoginNames();
+    extractCategories();
+    renderCategoryFilters();
+    renderCategorySuggestions();
+    renderQuestionsList();
   } catch (error) {
     console.error(error);
-    alert('Die Fragen konnten nicht aus Supabase geladen werden. Prüfe bitte, ob die aktuelle script.js auf GitHub gespeichert ist.');
+    loginError.textContent = 'Datenbank konnte nicht geladen werden. Bitte Seite neu laden.';
   }
 
-  extractCategories();
-  renderCategoryFilters();
-  renderCategorySuggestions();
-  renderQuestionsList();
-  loadTheme();
+  const savedProfileId = localStorage.getItem('examAppProfileId');
+  if (savedProfileId) {
+    const savedProfile = profiles.find(profile => String(profile.id) === savedProfileId);
+    if (savedProfile) loginName.value = String(savedProfile.id);
+  }
+  showLogin();
 }
+
+function fillLoginNames() {
+  loginName.innerHTML = '<option value="">Name auswählen …</option>' +
+    profiles.map(profile => `<option value="${profile.id}">${escapeHtml(profile.display_name)}</option>`).join('');
+}
+
+function showLogin() {
+  loginForm.reset();
+  loginError.textContent = '';
+  const savedProfileId = localStorage.getItem('examAppProfileId');
+  if (savedProfileId) loginName.value = savedProfileId;
+  loginOverlay.classList.remove('hidden');
+  loginPin.focus();
+}
+
+function hideLogin() {
+  loginOverlay.classList.add('hidden');
+}
+
+loginForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const profile = profiles.find(item => String(item.id) === loginName.value);
+  const pin = loginPin.value.trim();
+
+  if (!profile || !/^\d{4}$/.test(pin)) {
+    loginError.textContent = 'Bitte wähle einen Namen und gib eine vierstellige PIN ein.';
+    return;
+  }
+
+  if (profile.pin_code !== pin) {
+    loginError.textContent = 'Name oder PIN ist nicht korrekt.';
+    loginPin.value = '';
+    loginPin.focus();
+    return;
+  }
+
+  loginSubmit.disabled = true;
+  loginSubmit.textContent = 'Wird angemeldet …';
+  try {
+    currentProfile = profile;
+    await loadPersonalStats();
+    localStorage.setItem('examAppProfileId', String(profile.id));
+    currentUserLabel.textContent = `Angemeldet: ${profile.display_name}`;
+    statsUserInfo.textContent = `Persönliche Lernergebnisse von ${profile.display_name}.`;
+    hideLogin();
+    renderStatistics();
+  } catch (error) {
+    console.error(error);
+    loginError.textContent = 'Statistik konnte nicht geladen werden. Bitte erneut versuchen.';
+  } finally {
+    loginSubmit.disabled = false;
+    loginSubmit.textContent = 'Anmelden';
+  }
+});
+
+switchProfileBtn.addEventListener('click', () => {
+  currentProfile = null;
+  personalStats = new Map();
+  localStorage.removeItem('examAppProfileId');
+  showLogin();
+});
+
+function loadTheme() {
+  const theme = localStorage.getItem('examAppTheme') || 'light';
+  document.documentElement.setAttribute('data-theme', theme);
+  $('.theme-icon').textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
+themeToggle.addEventListener('click', () => {
+  const nextTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', nextTheme);
+  localStorage.setItem('examAppTheme', nextTheme);
+  $('.theme-icon').textContent = nextTheme === 'dark' ? '☀️' : '🌙';
+});
 
 function showSection(section) {
   editorSection.style.display = section === 'editor' ? 'block' : 'none';
@@ -146,34 +266,15 @@ function showSection(section) {
   btnStats.classList.toggle('active', section === 'stats');
 }
 
-function loadTheme() {
-  const theme = localStorage.getItem('theme') || 'light';
-  document.documentElement.setAttribute('data-theme', theme);
-  themeToggle.querySelector('.theme-icon').textContent = theme === 'dark' ? '☀️' : '🌙';
-}
-
-themeToggle.addEventListener('click', () => {
-  const previousTheme = document.documentElement.getAttribute('data-theme');
-  const theme = previousTheme === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('theme', theme);
-  themeToggle.querySelector('.theme-icon').textContent = theme === 'dark' ? '☀️' : '🌙';
-});
-
 btnEditor.addEventListener('click', () => showSection('editor'));
-btnQuiz.addEventListener('click', () => {
-  showSection('quiz');
-  showQuizStart();
-});
-btnStats.addEventListener('click', () => {
-  showSection('stats');
-  renderStatistics();
-});
+btnQuiz.addEventListener('click', () => { showSection('quiz'); showQuizStart(); });
+btnStats.addEventListener('click', () => { showSection('stats'); renderStatistics(); });
 
 questionImage.addEventListener('change', event => {
-  const file = event.target.files[0];
+  const file = event.target.files?.[0];
   imagePreview.innerHTML = '';
   if (!file) return;
+
   const reader = new FileReader();
   reader.onload = loadEvent => {
     const image = document.createElement('img');
@@ -184,7 +285,7 @@ questionImage.addEventListener('change', event => {
 });
 
 function extractCategories() {
-  categories = [...new Set(questions.map(question => question.category).filter(Boolean))]
+  categories = [...new Set(questions.map(question => question.category?.trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, 'de'));
 }
 
@@ -192,8 +293,8 @@ function renderCategorySuggestions() {
   categorySuggestions.innerHTML = '';
   categories.forEach(category => {
     const button = document.createElement('button');
-    button.type = 'button';
     button.className = 'category-suggestion';
+    button.type = 'button';
     button.textContent = category;
     button.addEventListener('click', () => { questionCategory.value = category; });
     categorySuggestions.appendChild(button);
@@ -206,6 +307,7 @@ function renderCategoryFilters() {
   const statsValue = statsFilterCategory.value;
   const options = '<option value="">Alle Kategorien</option>' +
     categories.map(category => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join('');
+
   filterCategory.innerHTML = options;
   quizCategoryFilter.innerHTML = options;
   statsFilterCategory.innerHTML = options;
@@ -220,17 +322,12 @@ addAnswerBtn.addEventListener('click', () => {
   row.className = 'answer-row';
   row.innerHTML = `
     <input type="text" class="answer-input" placeholder="Antwort ${index + 1}" required />
-    <label><input type="radio" name="correct-answer" value="${index}" /> richtig</label>
-    <button type="button" class="remove-answer">&times;</button>
+    <label class="correct-choice"><input type="radio" name="correct-answer" value="${index}" /> Richtig</label>
+    <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
   `;
   answersContainer.appendChild(row);
   updateRemoveButtons();
 });
-
-function updateRemoveButtons() {
-  const rows = answersContainer.querySelectorAll('.answer-row');
-  rows.forEach(row => { row.querySelector('.remove-answer').disabled = rows.length <= 2; });
-}
 
 answersContainer.addEventListener('click', event => {
   if (!event.target.classList.contains('remove-answer')) return;
@@ -241,46 +338,53 @@ answersContainer.addEventListener('click', event => {
   updateRemoveButtons();
 });
 
+function updateRemoveButtons() {
+  const rows = answersContainer.querySelectorAll('.answer-row');
+  rows.forEach(row => { row.querySelector('.remove-answer').disabled = rows.length <= 2; });
+}
+
 function reindexAnswers() {
   const rows = [...answersContainer.querySelectorAll('.answer-row')];
-  const selectedRow = rows.find(row => row.querySelector('input[type="radio"]').checked) || rows[0];
+  const selected = rows.find(row => row.querySelector('input[type="radio"]').checked) || rows[0];
   rows.forEach((row, index) => {
     row.querySelector('.answer-input').placeholder = `Antwort ${index + 1}`;
     const radio = row.querySelector('input[type="radio"]');
     radio.value = index;
-    radio.checked = row === selectedRow;
+    radio.checked = row === selected;
   });
 }
 
 questionForm.addEventListener('submit', async event => {
   event.preventDefault();
-  const submitButton = questionForm.querySelector('button[type="submit"]');
   const rows = [...answersContainer.querySelectorAll('.answer-row')];
   const answers = rows.map(row => row.querySelector('.answer-input').value.trim());
   const correctIndex = rows.findIndex(row => row.querySelector('input[type="radio"]').checked);
 
   if (!questionText.value.trim() || answers.some(answer => !answer) || correctIndex < 0) {
-    alert('Bitte fülle die Frage, alle Antworten und die richtige Antwort aus.');
+    alert('Bitte fülle die Frage und alle Antworten aus und markiere die richtige Antwort.');
     return;
   }
 
-  const question = {
-    text: questionText.value.trim(),
-    category: questionCategory.value.trim() || null,
-    image: imagePreview.querySelector('img')?.src || null,
-    answers,
-    correctIndex
-  };
-
+  const submitButton = questionForm.querySelector('button[type="submit"]');
   submitButton.disabled = true;
-  submitButton.textContent = 'Wird gespeichert ...';
+  submitButton.textContent = 'Wird gespeichert …';
 
   try {
-    const savedQuestion = await saveQuestionToDB(question);
+    const saved = await saveQuestion({
+      text: questionText.value.trim(),
+      category: questionCategory.value.trim() || null,
+      image: imagePreview.querySelector('img')?.src || null,
+      answers,
+      correctIndex
+    });
+
     questions.unshift({
-      ...question,
-      id: savedQuestion.id,
-      stats: { correct: 0, wrong: 0 }
+      id: saved.id,
+      text: saved.text,
+      category: saved.category,
+      image: saved.image,
+      answers: saved.answers,
+      correctIndex: saved.correct_index
     });
     extractCategories();
     renderCategoryFilters();
@@ -291,7 +395,7 @@ questionForm.addEventListener('submit', async event => {
     resetAnswersToDefault();
   } catch (error) {
     console.error(error);
-    alert('Speichern fehlgeschlagen. Prüfe in Supabase, dass RLS ausgeschaltet ist, und lade danach die Seite neu.');
+    alert('Speichern fehlgeschlagen. Bei großen Bildern kann der Datenbank-Eintrag zu groß sein.');
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = 'Frage speichern';
@@ -302,16 +406,15 @@ function resetAnswersToDefault() {
   answersContainer.innerHTML = `
     <div class="answer-row">
       <input type="text" class="answer-input" placeholder="Antwort 1" required />
-      <label><input type="radio" name="correct-answer" value="0" checked /> richtig</label>
-      <button type="button" class="remove-answer" disabled>&times;</button>
+      <label class="correct-choice"><input type="radio" name="correct-answer" value="0" checked /> Richtig</label>
+      <button type="button" class="remove-answer" disabled aria-label="Antwort entfernen">&times;</button>
     </div>
     <div class="answer-row">
       <input type="text" class="answer-input" placeholder="Antwort 2" required />
-      <label><input type="radio" name="correct-answer" value="1" /> richtig</label>
-      <button type="button" class="remove-answer">&times;</button>
+      <label class="correct-choice"><input type="radio" name="correct-answer" value="1" /> Richtig</label>
+      <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
     </div>
   `;
-  updateRemoveButtons();
 }
 
 clearFormBtn.addEventListener('click', () => {
@@ -323,40 +426,39 @@ clearFormBtn.addEventListener('click', () => {
 filterCategory.addEventListener('change', renderQuestionsList);
 
 function renderQuestionsList() {
-  const selectedCategory = filterCategory.value;
-  const visibleQuestions = selectedCategory
-    ? questions.filter(question => question.category === selectedCategory)
-    : questions;
-  questionsList.innerHTML = '';
-  if (visibleQuestions.length === 0) {
-    questionsList.innerHTML = `<p style="color:var(--text-secondary);">${questions.length === 0 ? 'Noch keine Fragen gespeichert.' : 'Keine Fragen in dieser Kategorie.'}</p>`;
+  const selected = filterCategory.value;
+  const visible = selected ? questions.filter(question => question.category === selected) : questions;
+  questionCount.textContent = `${visible.length} von ${questions.length} Fragen`;
+
+  if (!visible.length) {
+    questionsList.innerHTML = `<div class="empty-stats">${questions.length ? 'Keine Fragen in dieser Kategorie.' : 'Noch keine Fragen gespeichert.'}</div>`;
     return;
   }
 
-  visibleQuestions.forEach((question, index) => {
-    const card = document.createElement('div');
-    card.className = 'question-card';
+  questionsList.innerHTML = visible.map((question, index) => {
     const category = question.category ? `<span class="category-badge">${escapeHtml(question.category)}</span>` : '';
     const image = question.image ? `<img src="${question.image}" alt="Fragebild" />` : '';
     const answers = question.answers.map((answer, answerIndex) =>
       `<li>${answerIndex === question.correctIndex ? '●' : '○'} ${escapeHtml(answer)}</li>`
     ).join('');
-    card.innerHTML = `
-      <div class="question-card-header"><strong>Frage ${index + 1}:</strong>${category}</div>
-      <p>${escapeHtml(question.text)}</p>
-      ${image}
-      <ul>${answers}</ul>
-      <button class="delete-question" data-id="${question.id}">Frage löschen</button>
+    return `
+      <article class="question-card">
+        <div class="question-card-header"><strong>Frage ${index + 1}</strong>${category}</div>
+        <p>${escapeHtml(question.text)}</p>
+        ${image}
+        <ul>${answers}</ul>
+        <button class="delete-question" type="button" data-id="${question.id}">Frage löschen</button>
+      </article>
     `;
-    questionsList.appendChild(card);
-  });
+  }).join('');
 
   questionsList.querySelectorAll('.delete-question').forEach(button => {
     button.addEventListener('click', async () => {
-      if (!window.confirm('Diese Frage wirklich löschen?')) return;
+      if (!confirm('Möchtest du diese Frage für alle wirklich löschen?')) return;
       try {
-        await deleteQuestionFromDB(button.dataset.id);
+        await deleteQuestion(button.dataset.id);
         questions = questions.filter(question => String(question.id) !== button.dataset.id);
+        personalStats.delete(Number(button.dataset.id));
         extractCategories();
         renderCategoryFilters();
         renderCategorySuggestions();
@@ -372,30 +474,31 @@ function renderQuestionsList() {
 startQuizBtn.addEventListener('click', startQuiz);
 restartQuizBtn.addEventListener('click', startQuiz);
 quitQuizBtn.addEventListener('click', showQuizStart);
-nextQuestionBtn.addEventListener('click', goToNextQuestion);
+nextQuestionBtn.addEventListener('click', nextQuestion);
 
 function startQuiz() {
-  const selectedCategory = quizCategoryFilter.value;
-  let selectedQuestions = selectedCategory
-    ? questions.filter(question => question.category === selectedCategory)
+  let selected = quizCategoryFilter.value
+    ? questions.filter(question => question.category === quizCategoryFilter.value)
     : [...questions];
-  if (selectedQuestions.length === 0) {
-    alert('Bitte lege zuerst mindestens eine passende Frage an.');
+
+  if (!selected.length) {
+    alert('Für diese Auswahl gibt es keine Fragen.');
     return;
   }
-  if (quizModeFilter.value === 'weak') selectedQuestions = createWeakQuestionQueue(selectedQuestions);
-  quizQueue = shuffleArray(selectedQuestions);
+
+  if (quizModeFilter.value === 'weak') selected = createWeakQueue(selected);
+  quizQueue = shuffle(selected);
+  quizResults = [];
   currentQuestionIndex = 0;
   score = 0;
-  quizAnswerResults = [];
   showQuizActive();
   showQuestion();
 }
 
-function createWeakQuestionQueue(sourceQuestions) {
+function createWeakQueue(source) {
   const queue = [];
-  sourceQuestions.forEach(question => {
-    const stats = getQuestionPerformance(question);
+  source.forEach(question => {
+    const stats = getPerformance(question);
     let repetitions = 1;
     if (stats.answered === 0) repetitions = 2;
     else if (stats.accuracy < 40) repetitions = 4;
@@ -406,13 +509,13 @@ function createWeakQuestionQueue(sourceQuestions) {
   return queue;
 }
 
-function shuffleArray(items) {
-  const result = [...items];
-  for (let index = result.length - 1; index > 0; index--) {
-    const randomIndex = Math.floor(Math.random() * (index + 1));
-    [result[index], result[randomIndex]] = [result[randomIndex], result[index]];
+function shuffle(items) {
+  const output = [...items];
+  for (let index = output.length - 1; index > 0; index--) {
+    const random = Math.floor(Math.random() * (index + 1));
+    [output[index], output[random]] = [output[random], output[index]];
   }
-  return result;
+  return output;
 }
 
 function showQuizStart() {
@@ -440,161 +543,169 @@ function showQuestion() {
   quizProgress.textContent = `Frage ${currentQuestionIndex + 1} von ${quizQueue.length}`;
   quizCategoryBadge.textContent = question.category || '';
   quizQuestionText.textContent = question.text;
-  if (question.image) {
-    quizQuestionImage.src = question.image;
-    quizQuestionImage.style.display = 'block';
-  } else {
-    quizQuestionImage.style.display = 'none';
-  }
+  quizQuestionImage.style.display = question.image ? 'block' : 'none';
+  if (question.image) quizQuestionImage.src = question.image;
+
   quizAnswers.innerHTML = '';
   quizFeedback.className = 'quiz-feedback';
-  quizFeedback.style.display = 'none';
   nextQuestionBtn.style.display = 'none';
+
   question.answers.forEach((answer, index) => {
     const button = document.createElement('button');
     button.className = 'quiz-answer-btn';
+    button.type = 'button';
     button.textContent = answer;
-    button.addEventListener('click', () => handleAnswer(index, button));
+    button.addEventListener('click', () => answerQuestion(index, button));
     quizAnswers.appendChild(button);
   });
 }
 
-async function handleAnswer(selectedIndex, selectedButton) {
+async function answerQuestion(answerIndex, clickedButton) {
   const question = quizQueue[currentQuestionIndex];
-  const answerButtons = quizAnswers.querySelectorAll('.quiz-answer-btn');
-  answerButtons.forEach(button => { button.disabled = true; });
-  const isCorrect = selectedIndex === question.correctIndex;
-  if (isCorrect) {
-    question.stats.correct++;
+  const buttons = [...quizAnswers.querySelectorAll('.quiz-answer-btn')];
+  buttons.forEach(button => { button.disabled = true; });
+
+  const correct = answerIndex === question.correctIndex;
+  const stats = getPerformance(question);
+  if (correct) {
+    stats.correct++;
     score++;
-    selectedButton.classList.add('correct');
+    clickedButton.classList.add('correct');
     quizFeedback.textContent = 'Richtig! 🎉';
     quizFeedback.className = 'quiz-feedback show correct';
   } else {
-    question.stats.wrong++;
-    selectedButton.classList.add('wrong');
-    answerButtons[question.correctIndex].classList.add('correct');
+    stats.wrong++;
+    clickedButton.classList.add('wrong');
+    buttons[question.correctIndex]?.classList.add('correct');
     quizFeedback.textContent = 'Leider falsch. Die richtige Antwort ist markiert.';
     quizFeedback.className = 'quiz-feedback show wrong';
   }
-  quizAnswerResults.push({ category: question.category || 'Ohne Kategorie', correct: isCorrect });
+
+  personalStats.set(Number(question.id), stats);
+  quizResults.push({ category: question.category || 'Ohne Kategorie', correct });
   try {
-    await updateQuestionStatsInDB(question.id, question.stats);
+    await savePersonalStat(question.id, stats);
   } catch (error) {
     console.error(error);
+    alert('Antwort wurde angezeigt, konnte aber nicht in deiner Statistik gespeichert werden.');
   }
   nextQuestionBtn.style.display = 'inline-block';
 }
 
-function goToNextQuestion() {
+function nextQuestion() {
   currentQuestionIndex++;
   if (currentQuestionIndex >= quizQueue.length) showQuizEnd();
   else showQuestion();
 }
 
 function renderQuizCategoryResult() {
-  const result = {};
-  quizAnswerResults.forEach(entry => {
-    if (!result[entry.category]) result[entry.category] = { correct: 0, total: 0 };
-    result[entry.category].total++;
-    if (entry.correct) result[entry.category].correct++;
+  const summary = {};
+  quizResults.forEach(result => {
+    if (!summary[result.category]) summary[result.category] = { correct: 0, total: 0 };
+    summary[result.category].total++;
+    if (result.correct) summary[result.category].correct++;
   });
-  const entries = Object.entries(result);
-  quizCategoryResult.innerHTML = entries.length
-    ? `<h4>Ergebnis nach Kategorien:</h4><ul>${entries.map(([category, stats]) => `<li>${escapeHtml(category)}: ${stats.correct}/${stats.total} richtig</li>`).join('')}</ul>`
-    : '';
+  const rows = Object.entries(summary).map(([category, data]) =>
+    `<li>${escapeHtml(category)}: ${data.correct}/${data.total} richtig</li>`
+  ).join('');
+  quizCategoryResult.innerHTML = rows ? `<h4>Ergebnis nach Kategorien</h4><ul>${rows}</ul>` : '';
 }
 
-statsFilterCategory.addEventListener('change', renderDetailedQuestionStats);
-statsFilterPerformance.addEventListener('change', renderDetailedQuestionStats);
-resetStatsBtn.addEventListener('click', resetStatistics);
+statsFilterCategory.addEventListener('change', renderDetailedStats);
+statsFilterPerformance.addEventListener('change', renderDetailedStats);
+resetStatsBtn.addEventListener('click', async () => {
+  if (!currentProfile || !confirm('Möchtest du wirklich nur deine persönliche Statistik zurücksetzen?')) return;
+  try {
+    await resetPersonalStats();
+    renderStatistics();
+  } catch (error) {
+    console.error(error);
+    alert('Statistik konnte nicht zurückgesetzt werden.');
+  }
+});
 
-function getQuestionPerformance(question) {
-  const correct = Number(question.stats?.correct) || 0;
-  const wrong = Number(question.stats?.wrong) || 0;
+function getPerformance(question) {
+  const stored = personalStats.get(Number(question.id));
+  const correct = Number(stored?.correct) || 0;
+  const wrong = Number(stored?.wrong) || 0;
   const answered = correct + wrong;
   return { correct, wrong, answered, accuracy: answered ? Math.round((correct / answered) * 100) : null };
 }
 
 function renderStatistics() {
+  if (!currentProfile) return;
+  statsUserInfo.textContent = `Persönliche Lernergebnisse von ${currentProfile.display_name}.`;
   const total = questions.reduce((summary, question) => {
-    const stats = getQuestionPerformance(question);
+    const stats = getPerformance(question);
     summary.correct += stats.correct;
     summary.wrong += stats.wrong;
     return summary;
   }, { correct: 0, wrong: 0 });
   const answered = total.correct + total.wrong;
+
   statTotalQuestions.textContent = questions.length;
   statTotalAnswered.textContent = answered;
   statCorrect.textContent = total.correct;
   statWrong.textContent = total.wrong;
   statAccuracy.textContent = `${answered ? Math.round((total.correct / answered) * 100) : 0}%`;
   renderWeakQuestions();
-  renderCategoryStatistics();
-  renderDetailedQuestionStats();
+  renderCategoryStats();
+  renderDetailedStats();
 }
 
 function renderWeakQuestions() {
-  const weakQuestions = questions.filter(question => getQuestionPerformance(question).wrong > 0)
-    .sort((a, b) => getQuestionPerformance(b).wrong - getQuestionPerformance(a).wrong);
-  weakQuestionsList.innerHTML = weakQuestions.length
-    ? weakQuestions.map(createQuestionStatCard).join('')
+  const weak = questions.filter(question => getPerformance(question).wrong > 0)
+    .sort((a, b) => getPerformance(b).wrong - getPerformance(a).wrong);
+  weakQuestionsList.innerHTML = weak.length
+    ? weak.map(createStatCard).join('')
     : '<div class="empty-stats">Noch keine falsch beantworteten Fragen. Starte ein Quiz, um Daten zu sammeln.</div>';
 }
 
-function renderCategoryStatistics() {
-  const data = {};
+function renderCategoryStats() {
+  const categoriesData = {};
   questions.forEach(question => {
     const category = question.category || 'Ohne Kategorie';
-    const stats = getQuestionPerformance(question);
-    if (!data[category]) data[category] = { correct: 0, wrong: 0, questions: 0 };
-    data[category].correct += stats.correct;
-    data[category].wrong += stats.wrong;
-    data[category].questions++;
+    const stats = getPerformance(question);
+    if (!categoriesData[category]) categoriesData[category] = { correct: 0, wrong: 0, questions: 0 };
+    categoriesData[category].correct += stats.correct;
+    categoriesData[category].wrong += stats.wrong;
+    categoriesData[category].questions++;
   });
-  const entries = Object.entries(data);
-  categoryStatsList.innerHTML = entries.length ? entries.map(([category, stats]) => {
-    const answered = stats.correct + stats.wrong;
-    const accuracy = answered ? Math.round((stats.correct / answered) * 100) : 0;
+
+  const entries = Object.entries(categoriesData);
+  categoryStatsList.innerHTML = entries.length ? entries.map(([category, data]) => {
+    const answered = data.correct + data.wrong;
+    const accuracy = answered ? Math.round((data.correct / answered) * 100) : 0;
     const level = accuracy < 50 ? 'low' : accuracy < 75 ? 'medium' : '';
-    const label = answered ? `${stats.correct}/${answered} richtig (${accuracy}%)` : `${stats.questions} Fragen, noch nicht beantwortet`;
+    const label = answered ? `${data.correct}/${answered} richtig (${accuracy}%)` : `${data.questions} Fragen, noch nicht beantwortet`;
     return `<div class="category-stat-row"><span class="category-stat-name">${escapeHtml(category)}</span><div class="progress-bar"><div class="progress-bar-fill ${level}" style="width:${accuracy}%"></div></div><span class="category-stat-percent">${label}</span></div>`;
   }).join('') : '<div class="empty-stats">Noch keine Kategorien vorhanden.</div>';
 }
 
-function renderDetailedQuestionStats() {
+function renderDetailedStats() {
   const category = statsFilterCategory.value;
   const performance = statsFilterPerformance.value;
-  let visibleQuestions = category ? questions.filter(question => question.category === category) : [...questions];
-  if (performance === 'weak') visibleQuestions = visibleQuestions.filter(question => getQuestionPerformance(question).wrong > getQuestionPerformance(question).correct);
-  if (performance === 'good') visibleQuestions = visibleQuestions.filter(question => {
-    const stats = getQuestionPerformance(question);
+  let visible = category ? questions.filter(question => question.category === category) : [...questions];
+  if (performance === 'weak') visible = visible.filter(question => {
+    const stats = getPerformance(question);
+    return stats.wrong > stats.correct;
+  });
+  if (performance === 'good') visible = visible.filter(question => {
+    const stats = getPerformance(question);
     return stats.answered > 0 && stats.correct >= stats.wrong;
   });
-  visibleQuestions.sort((a, b) => getQuestionPerformance(b).wrong - getQuestionPerformance(a).wrong);
-  allQuestionsStats.innerHTML = visibleQuestions.length
-    ? visibleQuestions.map(createQuestionStatCard).join('')
+  visible.sort((a, b) => getPerformance(b).wrong - getPerformance(a).wrong);
+  allQuestionsStats.innerHTML = visible.length
+    ? visible.map(createStatCard).join('')
     : '<div class="empty-stats">Keine Fragen für diesen Filter vorhanden.</div>';
 }
 
-function createQuestionStatCard(question) {
-  const stats = getQuestionPerformance(question);
-  const performanceClass = stats.answered === 0 ? 'neutral' : stats.wrong > stats.correct ? 'weak' : 'good';
+function createStatCard(question) {
+  const stats = getPerformance(question);
+  const status = stats.answered === 0 ? 'neutral' : stats.wrong > stats.correct ? 'weak' : 'good';
   const category = question.category || 'Ohne Kategorie';
   const accuracy = stats.accuracy === null ? 'Noch nicht beantwortet' : `${stats.accuracy}% richtig`;
-  return `<article class="question-stat-card ${performanceClass}"><div class="question-stat-header"><strong>Frage</strong><span class="category-badge">${escapeHtml(category)}</span></div><p class="question-stat-text">${escapeHtml(question.text)}</p><div class="question-stat-values"><span class="stat-pill correct">✓ ${stats.correct} richtig</span><span class="stat-pill wrong">✕ ${stats.wrong} falsch</span><span class="stat-pill accuracy">${accuracy}</span></div></article>`;
-}
-
-async function resetStatistics() {
-  if (!window.confirm('Möchtest du wirklich alle Antwort-Statistiken zurücksetzen? Deine Fragen bleiben erhalten.')) return;
-  questions.forEach(question => { question.stats = { correct: 0, wrong: 0 }; });
-  try {
-    await Promise.all(questions.map(question => updateQuestionStatsInDB(question.id, question.stats)));
-    renderStatistics();
-  } catch (error) {
-    console.error(error);
-    alert('Die Statistik konnte nicht vollständig zurückgesetzt werden.');
-  }
+  return `<article class="question-stat-card ${status}"><div class="question-stat-header"><strong>Frage</strong><span class="category-badge">${escapeHtml(category)}</span></div><p class="question-stat-text">${escapeHtml(question.text)}</p><div class="question-stat-values"><span class="stat-pill correct">✓ ${stats.correct} richtig</span><span class="stat-pill wrong">✕ ${stats.wrong} falsch</span><span class="stat-pill accuracy">${accuracy}</span></div></article>`;
 }
 
 function escapeHtml(value) {
@@ -606,4 +717,4 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
-initApp();
+init();
