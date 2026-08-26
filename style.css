@@ -160,12 +160,34 @@ button:disabled { opacity: .58; cursor: not-allowed; transform: none !important;
 #questions-list, #weak-questions-list, #all-questions-stats { display: grid; gap: 12px; }
 .question-card, .question-stat-card { background: var(--bg); border: 1px solid var(--border); border-radius: 11px; padding: 18px; }
 .question-card-header, .question-stat-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.question-card-actions { display: flex; align-items: center; gap: 8px; }
 .question-card p { margin-bottom: 10px; font-weight: 520; }
 .question-card ul { margin: 12px 0 0 20px; color: var(--text-secondary); }
 .question-card li { margin: 3px 0; }
 .delete-question { margin-top: 14px; border: 1px solid var(--error); background: var(--error-bg); color: var(--error); border-radius: 7px; padding: 8px 11px; font-size: .83rem; font-weight: 700; }
 .delete-question:hover, .btn-danger:hover { background: var(--error); color: #fff; }
 .category-badge { display: inline-block; background: var(--category-bg); color: var(--category-text); border-radius: 999px; padding: 4px 9px; font-size: .78rem; font-weight: 650; white-space: nowrap; }
+
+.favorite-button {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--warning);
+  border-radius: 9px;
+  font-size: 1.35rem;
+  line-height: 1;
+  transition: .18s ease;
+}
+.favorite-button:hover,
+.favorite-button.active {
+  border-color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning);
+  transform: translateY(-1px);
+}
 
 .quiz-options-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 650px; margin: 20px 0; }
 .quiz-options label { margin-top: 0; }

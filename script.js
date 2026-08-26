@@ -16,6 +16,7 @@ const FALLBACK_PROFILES = [
 let questions = [];
 let profiles = [];
 let personalStats = new Map();
+let favoriteQuestionIds = new Set();
 let currentProfile = null;
 let categories = [];
 let quizQueue = [];
@@ -24,7 +25,7 @@ let currentQuestionIndex = 0;
 let score = 0;
 let selectedImageFile = null;
 
-const $ = (selector) => document.querySelector(selector);
+const $ = selector => document.querySelector(selector);
 
 const loginOverlay = $('#login-overlay');
 const loginForm = $('#login-form');
@@ -152,6 +153,55 @@ async function loadPersonalStats() {
   }
 }
 
+async function loadFavorites() {
+  if (!currentProfile) return;
+
+  try {
+    const rows = await api(
+      `user_question_favorites?select=question_id&profile_id=eq.${currentProfile.id}`
+    );
+    favoriteQuestionIds = new Set(rows.map(row => Number(row.question_id)));
+  } catch (error) {
+    console.warn('Merkliste konnte nicht geladen werden.', error);
+    favoriteQuestionIds = new Set();
+  }
+}
+
+function isFavorite(questionId) {
+  return favoriteQuestionIds.has(Number(questionId));
+}
+
+async function toggleFavorite(questionId) {
+  if (!currentProfile) return;
+
+  const id = Number(questionId);
+
+  try {
+    if (isFavorite(id)) {
+      await api(
+        `user_question_favorites?profile_id=eq.${currentProfile.id}&question_id=eq.${id}`,
+        { method: 'DELETE' }
+      );
+      favoriteQuestionIds.delete(id);
+    } else {
+      await api('user_question_favorites', {
+        method: 'POST',
+        body: JSON.stringify({
+          profile_id: currentProfile.id,
+          question_id: id
+        })
+      });
+      favoriteQuestionIds.add(id);
+    }
+
+    renderQuestionsList();
+    renderStatistics();
+  } catch (error) {
+    console.error(error);
+    alert('Die Merkliste konnte nicht gespeichert werden.');
+  }
+}
+
 async function saveQuestion(question) {
   const rows = await api('questions', {
     method: 'POST',
@@ -170,17 +220,13 @@ async function saveQuestion(question) {
 }
 
 async function deleteQuestion(id) {
-  await api(`questions?id=eq.${encodeURIComponent(id)}`, {
-    method: 'DELETE'
-  });
+  await api(`questions?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
 async function savePersonalStat(questionId, stats) {
   await api('user_question_stats', {
     method: 'POST',
-    headers: {
-      Prefer: 'resolution=merge-duplicates,return=representation'
-    },
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
     body: JSON.stringify({
       profile_id: currentProfile.id,
       question_id: questionId,
@@ -192,10 +238,7 @@ async function savePersonalStat(questionId, stats) {
 }
 
 async function resetPersonalStats() {
-  await api(`user_question_stats?profile_id=eq.${currentProfile.id}`, {
-    method: 'DELETE'
-  });
-
+  await api(`user_question_stats?profile_id=eq.${currentProfile.id}`, { method: 'DELETE' });
   personalStats = new Map();
 }
 
@@ -207,26 +250,20 @@ async function uploadImageToStorage(file) {
   const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
   const objectPath = `questions/${fileName}`;
 
-  const response = await fetch(
-    `${SUPABASE_URL}/storage/v1/object/${IMAGE_BUCKET}/${objectPath}`,
-    {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': compressedImage.type,
-        'x-upsert': 'false'
-      },
-      body: compressedImage
-    }
-  );
+  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${IMAGE_BUCKET}/${objectPath}`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': compressedImage.type,
+      'x-upsert': 'false'
+    },
+    body: compressedImage
+  });
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(
-      error ||
-      'Der Bild-Upload wurde von Supabase abgelehnt. Prüfe die Storage-Policies für den Bucket.'
-    );
+    throw new Error(error || 'Der Bild-Upload wurde von Supabase abgelehnt. Prüfe die Storage-Policies für den Bucket.');
   }
 
   return `${SUPABASE_URL}/storage/v1/object/public/${IMAGE_BUCKET}/${objectPath}`;
@@ -235,12 +272,10 @@ async function uploadImageToStorage(file) {
 function compressImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-
     reader.onerror = () => reject(new Error('Das Bild konnte nicht gelesen werden.'));
 
     reader.onload = () => {
       const image = new Image();
-
       image.onerror = () => reject(new Error('Das Bild ist ungültig.'));
 
       image.onload = () => {
@@ -257,22 +292,15 @@ function compressImage(file) {
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
+        canvas.getContext('2d').drawImage(image, 0, 0, width, height);
 
-        const context = canvas.getContext('2d');
-        context.drawImage(image, 0, 0, width, height);
-
-        canvas.toBlob(
-          blob => {
-            if (!blob) {
-              reject(new Error('Bild konnte nicht komprimiert werden.'));
-              return;
-            }
-
-            resolve(blob);
-          },
-          'image/jpeg',
-          0.82
-        );
+        canvas.toBlob(blob => {
+          if (!blob) {
+            reject(new Error('Bild konnte nicht komprimiert werden.'));
+            return;
+          }
+          resolve(blob);
+        }, 'image/jpeg', 0.82);
       };
 
       image.src = reader.result;
@@ -284,7 +312,6 @@ function compressImage(file) {
 
 async function init() {
   loadTheme();
-
   profiles = await loadProfiles();
   fillLoginNames();
 
@@ -293,31 +320,23 @@ async function init() {
   } catch (error) {
     console.error(error);
     questions = [];
-    loginError.textContent =
-      'Fragen konnten gerade nicht geladen werden. Du kannst dich trotzdem anmelden.';
+    loginError.textContent = 'Fragen konnten gerade nicht geladen werden. Du kannst dich trotzdem anmelden.';
   }
 
   extractCategories();
   renderCategoryFilters();
   renderCategorySuggestions();
   renderQuestionsList();
-
   showLogin();
 }
 
 function fillLoginNames() {
-  loginName.innerHTML =
-    '<option value="">Name auswählen …</option>' +
-    profiles
-      .map(profile => {
-        return `<option value="${profile.id}">${escapeHtml(profile.display_name)}</option>`;
-      })
-      .join('');
+  loginName.innerHTML = '<option value="">Name auswählen …</option>' + profiles
+    .map(profile => `<option value="${profile.id}">${escapeHtml(profile.display_name)}</option>`)
+    .join('');
 
   const savedProfileId = localStorage.getItem('examAppProfileId');
-  if (savedProfileId) {
-    loginName.value = savedProfileId;
-  }
+  if (savedProfileId) loginName.value = savedProfileId;
 }
 
 function showLogin() {
@@ -332,13 +351,11 @@ function hideLogin() {
 
 loginForm.addEventListener('submit', async event => {
   event.preventDefault();
-
   const profile = profiles.find(item => String(item.id) === loginName.value);
   const pin = loginPin.value.trim();
 
   if (!profile || !/^\d{4}$/.test(pin)) {
-    loginError.textContent =
-      'Bitte wähle einen Namen und gib eine vierstellige PIN ein.';
+    loginError.textContent = 'Bitte wähle einen Namen und gib eine vierstellige PIN ein.';
     return;
   }
 
@@ -354,14 +371,12 @@ loginForm.addEventListener('submit', async event => {
 
   try {
     currentProfile = profile;
-    await loadPersonalStats();
-
+    await Promise.all([loadPersonalStats(), loadFavorites()]);
     localStorage.setItem('examAppProfileId', String(profile.id));
     currentUserLabel.textContent = `Angemeldet: ${profile.display_name}`;
-    statsUserInfo.textContent =
-      `Persönliche Lernergebnisse von ${profile.display_name}.`;
-
+    statsUserInfo.textContent = `Persönliche Lernergebnisse von ${profile.display_name}. ${favoriteQuestionIds.size} Fragen sind in deiner Merkliste.`;
     hideLogin();
+    renderQuestionsList();
     renderStatistics();
   } finally {
     loginSubmit.disabled = false;
@@ -372,6 +387,7 @@ loginForm.addEventListener('submit', async event => {
 switchProfileBtn.addEventListener('click', () => {
   currentProfile = null;
   personalStats = new Map();
+  favoriteQuestionIds = new Set();
   localStorage.removeItem('examAppProfileId');
   showLogin();
 });
@@ -383,9 +399,7 @@ function loadTheme() {
 }
 
 themeToggle.addEventListener('click', () => {
-  const current = document.documentElement.getAttribute('data-theme');
-  const theme = current === 'dark' ? 'light' : 'dark';
-
+  const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('examAppTheme', theme);
   $('.theme-icon').textContent = theme === 'dark' ? '☀️' : '🌙';
@@ -395,7 +409,6 @@ function showSection(section) {
   editorSection.style.display = section === 'editor' ? 'block' : 'none';
   quizSection.style.display = section === 'quiz' ? 'block' : 'none';
   statsSection.style.display = section === 'stats' ? 'block' : 'none';
-
   btnEditor.classList.toggle('active', section === 'editor');
   btnQuiz.classList.toggle('active', section === 'quiz');
   btnStats.classList.toggle('active', section === 'stats');
@@ -415,7 +428,6 @@ questionImage.addEventListener('change', event => {
   const file = event.target.files?.[0];
   imagePreview.innerHTML = '';
   selectedImageFile = null;
-
   if (!file) return;
 
   if (!file.type.startsWith('image/')) {
@@ -431,7 +443,6 @@ questionImage.addEventListener('change', event => {
   }
 
   selectedImageFile = file;
-
   const reader = new FileReader();
   reader.onload = loadEvent => {
     const image = document.createElement('img');
@@ -442,28 +453,18 @@ questionImage.addEventListener('change', event => {
 });
 
 function extractCategories() {
-  categories = [
-    ...new Set(
-      questions
-        .map(question => question.category?.trim())
-        .filter(Boolean)
-    )
-  ].sort((a, b) => a.localeCompare(b, 'de'));
+  categories = [...new Set(questions.map(question => question.category?.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'de'));
 }
 
 function renderCategorySuggestions() {
   categorySuggestions.innerHTML = '';
-
   categories.forEach(category => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'category-suggestion';
     button.textContent = category;
-
-    button.addEventListener('click', () => {
-      questionCategory.value = category;
-    });
-
+    button.addEventListener('click', () => { questionCategory.value = category; });
     categorySuggestions.appendChild(button);
   });
 }
@@ -472,19 +473,13 @@ function renderCategoryFilters() {
   const oldEditorValue = filterCategory.value;
   const oldQuizValue = quizCategoryFilter.value;
   const oldStatsValue = statsFilterCategory.value;
-
-  const options =
-    '<option value="">Alle Kategorien</option>' +
-    categories
-      .map(category => {
-        return `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`;
-      })
-      .join('');
+  const options = '<option value="">Alle Kategorien</option>' + categories
+    .map(category => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
+    .join('');
 
   filterCategory.innerHTML = options;
   quizCategoryFilter.innerHTML = options;
   statsFilterCategory.innerHTML = options;
-
   filterCategory.value = categories.includes(oldEditorValue) ? oldEditorValue : '';
   quizCategoryFilter.value = categories.includes(oldQuizValue) ? oldQuizValue : '';
   statsFilterCategory.value = categories.includes(oldStatsValue) ? oldStatsValue : '';
@@ -492,7 +487,6 @@ function renderCategoryFilters() {
 
 addAnswerBtn.addEventListener('click', () => {
   const index = answersContainer.querySelectorAll('.answer-row').length;
-
   const row = document.createElement('div');
   row.className = 'answer-row';
   row.innerHTML = `
@@ -500,17 +494,14 @@ addAnswerBtn.addEventListener('click', () => {
     <label class="correct-choice"><input type="radio" name="correct-answer" value="${index}" /> Richtig</label>
     <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
   `;
-
   answersContainer.appendChild(row);
   updateRemoveButtons();
 });
 
 answersContainer.addEventListener('click', event => {
   if (!event.target.classList.contains('remove-answer')) return;
-
   const rows = [...answersContainer.querySelectorAll('.answer-row')];
   if (rows.length <= 2) return;
-
   event.target.closest('.answer-row').remove();
   reindexAnswers();
   updateRemoveButtons();
@@ -518,19 +509,14 @@ answersContainer.addEventListener('click', event => {
 
 function updateRemoveButtons() {
   const rows = answersContainer.querySelectorAll('.answer-row');
-
-  rows.forEach(row => {
-    row.querySelector('.remove-answer').disabled = rows.length <= 2;
-  });
+  rows.forEach(row => { row.querySelector('.remove-answer').disabled = rows.length <= 2; });
 }
 
 function reindexAnswers() {
   const rows = [...answersContainer.querySelectorAll('.answer-row')];
   const selected = rows.find(row => row.querySelector('input[type="radio"]').checked) || rows[0];
-
   rows.forEach((row, index) => {
     row.querySelector('.answer-input').placeholder = `Antwort ${index + 1}`;
-
     const radio = row.querySelector('input[type="radio"]');
     radio.value = index;
     radio.checked = row === selected;
@@ -539,7 +525,6 @@ function reindexAnswers() {
 
 questionForm.addEventListener('submit', async event => {
   event.preventDefault();
-
   const rows = [...answersContainer.querySelectorAll('.answer-row')];
   const answers = rows.map(row => row.querySelector('.answer-input').value.trim());
   const correctIndex = rows.findIndex(row => row.querySelector('input[type="radio"]').checked);
@@ -551,17 +536,10 @@ questionForm.addEventListener('submit', async event => {
 
   const submitButton = questionForm.querySelector('button[type="submit"]');
   submitButton.disabled = true;
-  submitButton.textContent = selectedImageFile
-    ? 'Bild wird hochgeladen …'
-    : 'Wird gespeichert …';
+  submitButton.textContent = selectedImageFile ? 'Bild wird hochgeladen …' : 'Wird gespeichert …';
 
   try {
-    let imageUrl = null;
-
-    if (selectedImageFile) {
-      imageUrl = await uploadImageToStorage(selectedImageFile);
-    }
-
+    const imageUrl = selectedImageFile ? await uploadImageToStorage(selectedImageFile) : null;
     const saved = await saveQuestion({
       text: questionText.value.trim(),
       category: questionCategory.value.trim() || null,
@@ -583,17 +561,13 @@ questionForm.addEventListener('submit', async event => {
     renderCategoryFilters();
     renderCategorySuggestions();
     renderQuestionsList();
-
     questionForm.reset();
     imagePreview.innerHTML = '';
     selectedImageFile = null;
     resetAnswersToDefault();
   } catch (error) {
     console.error(error);
-
-    alert(
-      'Speichern fehlgeschlagen. Falls es beim Bild passiert: Prüfe in Supabase Storage, ob beim Bucket question-images Uploads erlaubt sind.'
-    );
+    alert('Speichern fehlgeschlagen. Falls es beim Bild passiert: Prüfe in Supabase Storage, ob beim Bucket question-images Uploads erlaubt sind.');
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = 'Frage speichern';
@@ -626,63 +600,56 @@ filterCategory.addEventListener('change', renderQuestionsList);
 
 function renderQuestionsList() {
   const category = filterCategory.value;
-  const visible = category
-    ? questions.filter(question => question.category === category)
-    : questions;
-
+  const visible = category ? questions.filter(question => question.category === category) : questions;
   questionCount.textContent = `${visible.length} von ${questions.length} Fragen`;
 
   if (!visible.length) {
-    questionsList.innerHTML =
-      '<div class="empty-stats">Noch keine Fragen in dieser Kategorie.</div>';
+    questionsList.innerHTML = '<div class="empty-stats">Noch keine Fragen in dieser Kategorie.</div>';
     return;
   }
 
-  questionsList.innerHTML = visible
-    .map((question, index) => {
-      const categoryBadge = question.category
-        ? `<span class="category-badge">${escapeHtml(question.category)}</span>`
-        : '';
+  questionsList.innerHTML = visible.map((question, index) => {
+    const categoryBadge = question.category ? `<span class="category-badge">${escapeHtml(question.category)}</span>` : '';
+    const image = question.image ? `<img src="${question.image}" alt="Fragebild" />` : '';
+    const answers = question.answers
+      .map((answer, answerIndex) => `<li>${answerIndex === question.correctIndex ? '●' : '○'} ${escapeHtml(answer)}</li>`)
+      .join('');
+    const favorite = isFavorite(question.id);
 
-      const image = question.image
-        ? `<img src="${question.image}" alt="Fragebild" />`
-        : '';
-
-      const answers = question.answers
-        .map((answer, answerIndex) => {
-          return `<li>${answerIndex === question.correctIndex ? '●' : '○'} ${escapeHtml(answer)}</li>`;
-        })
-        .join('');
-
-      return `
-        <article class="question-card">
-          <div class="question-card-header">
-            <strong>Frage ${index + 1}</strong>
+    return `
+      <article class="question-card">
+        <div class="question-card-header">
+          <strong>Frage ${index + 1}</strong>
+          <div class="question-card-actions">
             ${categoryBadge}
+            <button class="favorite-button ${favorite ? 'active' : ''}" type="button" data-favorite-id="${question.id}" title="${favorite ? 'Aus Merkliste entfernen' : 'Zur Merkliste hinzufügen'}">${favorite ? '★' : '☆'}</button>
           </div>
-          <p>${escapeHtml(question.text)}</p>
-          ${image}
-          <ul>${answers}</ul>
-          <button class="delete-question" type="button" data-id="${question.id}">Frage löschen</button>
-        </article>
-      `;
-    })
-    .join('');
+        </div>
+        <p>${escapeHtml(question.text)}</p>
+        ${image}
+        <ul>${answers}</ul>
+        <button class="delete-question" type="button" data-id="${question.id}">Frage löschen</button>
+      </article>
+    `;
+  }).join('');
+
+  questionsList.querySelectorAll('[data-favorite-id]').forEach(button => {
+    button.addEventListener('click', () => toggleFavorite(button.dataset.favoriteId));
+  });
 
   questionsList.querySelectorAll('.delete-question').forEach(button => {
     button.addEventListener('click', async () => {
       if (!confirm('Möchtest du diese Frage für alle löschen?')) return;
-
       try {
         await deleteQuestion(button.dataset.id);
-
         questions = questions.filter(question => String(question.id) !== button.dataset.id);
         personalStats.delete(Number(button.dataset.id));
-
+        favoriteQuestionIds.delete(Number(button.dataset.id));
         extractCategories();
         renderCategoryFilters();
         renderCategorySuggestions();
         renderQuestionsList();
+        renderStatistics();
       } catch (error) {
         console.error(error);
         alert('Die Frage konnte nicht gelöscht werden.');
@@ -701,52 +668,48 @@ function startQuiz() {
     ? questions.filter(question => question.category === quizCategoryFilter.value)
     : [...questions];
 
+  if (quizModeFilter.value === 'favorites') {
+    selected = selected.filter(question => isFavorite(question.id));
+  }
+
   if (!selected.length) {
-    alert('Für diese Auswahl gibt es keine Fragen.');
+    const message = quizModeFilter.value === 'favorites'
+      ? 'Deine Merkliste enthält für diese Auswahl noch keine Fragen.'
+      : 'Für diese Auswahl gibt es keine Fragen.';
+    alert(message);
     return;
   }
 
-  if (quizModeFilter.value === 'weak') {
-    selected = createWeakQueue(selected);
-  }
+  if (quizModeFilter.value === 'weak') selected = createWeakQueue(selected);
 
   quizQueue = shuffle(selected);
   quizResults = [];
   currentQuestionIndex = 0;
   score = 0;
-
   showQuizActive();
   showQuestion();
 }
 
 function createWeakQueue(source) {
   const queue = [];
-
   source.forEach(question => {
     const stats = getPerformance(question);
     let repetitions = 1;
-
     if (stats.answered === 0) repetitions = 2;
     else if (stats.accuracy < 40) repetitions = 4;
     else if (stats.accuracy < 70) repetitions = 3;
     else if (stats.accuracy < 90) repetitions = 2;
-
-    for (let i = 0; i < repetitions; i++) {
-      queue.push(question);
-    }
+    for (let i = 0; i < repetitions; i++) queue.push(question);
   });
-
   return queue;
 }
 
 function shuffle(items) {
   const output = [...items];
-
   for (let index = output.length - 1; index > 0; index--) {
     const random = Math.floor(Math.random() * (index + 1));
     [output[index], output[random]] = [output[random], output[index]];
   }
-
   return output;
 }
 
@@ -766,19 +729,13 @@ function showQuizEnd() {
   quizStart.style.display = 'none';
   quizActive.style.display = 'none';
   quizEnd.style.display = 'block';
-
-  quizResult.textContent =
-    `Du hast ${score} von ${quizQueue.length} Quizrunden richtig beantwortet.`;
-
+  quizResult.textContent = `Du hast ${score} von ${quizQueue.length} Quizrunden richtig beantwortet.`;
   renderQuizCategoryResult();
 }
 
 function showQuestion() {
   const question = quizQueue[currentQuestionIndex];
-
-  quizProgress.textContent =
-    `Frage ${currentQuestionIndex + 1} von ${quizQueue.length}`;
-
+  quizProgress.textContent = `Frage ${currentQuestionIndex + 1} von ${quizQueue.length}`;
   quizCategoryBadge.textContent = question.category || '';
   quizQuestionText.textContent = question.text;
 
@@ -798,9 +755,7 @@ function showQuestion() {
     button.className = 'quiz-answer-btn';
     button.type = 'button';
     button.textContent = answer;
-
     button.addEventListener('click', () => answerQuestion(index, button));
-
     quizAnswers.appendChild(button);
   });
 }
@@ -808,10 +763,7 @@ function showQuestion() {
 async function answerQuestion(answerIndex, clickedButton) {
   const question = quizQueue[currentQuestionIndex];
   const buttons = [...quizAnswers.querySelectorAll('.quiz-answer-btn')];
-
-  buttons.forEach(button => {
-    button.disabled = true;
-  });
+  buttons.forEach(button => { button.disabled = true; });
 
   const correct = answerIndex === question.correctIndex;
   const stats = getPerformance(question);
@@ -819,26 +771,19 @@ async function answerQuestion(answerIndex, clickedButton) {
   if (correct) {
     stats.correct++;
     score++;
-
     clickedButton.classList.add('correct');
     quizFeedback.textContent = 'Richtig! 🎉';
     quizFeedback.className = 'quiz-feedback show correct';
   } else {
     stats.wrong++;
-
     clickedButton.classList.add('wrong');
     buttons[question.correctIndex]?.classList.add('correct');
-
-    quizFeedback.textContent =
-      'Leider falsch. Die richtige Antwort ist markiert.';
+    quizFeedback.textContent = 'Leider falsch. Die richtige Antwort ist markiert.';
     quizFeedback.className = 'quiz-feedback show wrong';
   }
 
   personalStats.set(Number(question.id), stats);
-  quizResults.push({
-    category: question.category || 'Ohne Kategorie',
-    correct
-  });
+  quizResults.push({ category: question.category || 'Ohne Kategorie', correct });
 
   try {
     await savePersonalStat(question.id, stats);
@@ -851,38 +796,23 @@ async function answerQuestion(answerIndex, clickedButton) {
 
 function nextQuestion() {
   currentQuestionIndex++;
-
-  if (currentQuestionIndex >= quizQueue.length) {
-    showQuizEnd();
-  } else {
-    showQuestion();
-  }
+  if (currentQuestionIndex >= quizQueue.length) showQuizEnd();
+  else showQuestion();
 }
 
 function renderQuizCategoryResult() {
   const summary = {};
-
   quizResults.forEach(result => {
-    if (!summary[result.category]) {
-      summary[result.category] = { correct: 0, total: 0 };
-    }
-
+    if (!summary[result.category]) summary[result.category] = { correct: 0, total: 0 };
     summary[result.category].total++;
-
-    if (result.correct) {
-      summary[result.category].correct++;
-    }
+    if (result.correct) summary[result.category].correct++;
   });
 
   const rows = Object.entries(summary)
-    .map(([category, data]) => {
-      return `<li>${escapeHtml(category)}: ${data.correct}/${data.total} richtig</li>`;
-    })
+    .map(([category, data]) => `<li>${escapeHtml(category)}: ${data.correct}/${data.total} richtig</li>`)
     .join('');
 
-  quizCategoryResult.innerHTML = rows
-    ? `<h4>Ergebnis nach Kategorien</h4><ul>${rows}</ul>`
-    : '';
+  quizCategoryResult.innerHTML = rows ? `<h4>Ergebnis nach Kategorien</h4><ul>${rows}</ul>` : '';
 }
 
 statsFilterCategory.addEventListener('change', renderDetailedStats);
@@ -890,12 +820,7 @@ statsFilterPerformance.addEventListener('change', renderDetailedStats);
 
 resetStatsBtn.addEventListener('click', async () => {
   if (!currentProfile) return;
-
-  const confirmed = confirm(
-    'Möchtest du wirklich nur deine persönliche Statistik zurücksetzen?'
-  );
-
-  if (!confirmed) return;
+  if (!confirm('Möchtest du wirklich nur deine persönliche Statistik zurücksetzen?')) return;
 
   try {
     await resetPersonalStats();
@@ -911,37 +836,26 @@ function getPerformance(question) {
   const correct = Number(stored?.correct) || 0;
   const wrong = Number(stored?.wrong) || 0;
   const answered = correct + wrong;
-
-  return {
-    correct,
-    wrong,
-    answered,
-    accuracy: answered ? Math.round((correct / answered) * 100) : null
-  };
+  return { correct, wrong, answered, accuracy: answered ? Math.round((correct / answered) * 100) : null };
 }
 
 function renderStatistics() {
   if (!currentProfile) return;
 
-  const totals = questions.reduce(
-    (summary, question) => {
-      const stats = getPerformance(question);
-      summary.correct += stats.correct;
-      summary.wrong += stats.wrong;
-      return summary;
-    },
-    { correct: 0, wrong: 0 }
-  );
+  const totals = questions.reduce((summary, question) => {
+    const stats = getPerformance(question);
+    summary.correct += stats.correct;
+    summary.wrong += stats.wrong;
+    return summary;
+  }, { correct: 0, wrong: 0 });
 
   const answered = totals.correct + totals.wrong;
-
   statTotalQuestions.textContent = questions.length;
   statTotalAnswered.textContent = answered;
   statCorrect.textContent = totals.correct;
   statWrong.textContent = totals.wrong;
-  statAccuracy.textContent =
-    `${answered ? Math.round((totals.correct / answered) * 100) : 0}%`;
-
+  statAccuracy.textContent = `${answered ? Math.round((totals.correct / answered) * 100) : 0}%`;
+  statsUserInfo.textContent = `Persönliche Lernergebnisse von ${currentProfile.display_name}. ${favoriteQuestionIds.size} Fragen sind in deiner Merkliste.`;
   renderWeakQuestions();
   renderCategoryStats();
   renderDetailedStats();
@@ -959,52 +873,34 @@ function renderWeakQuestions() {
 
 function renderCategoryStats() {
   const data = {};
-
   questions.forEach(question => {
     const category = question.category || 'Ohne Kategorie';
     const stats = getPerformance(question);
-
-    if (!data[category]) {
-      data[category] = { correct: 0, wrong: 0, questions: 0 };
-    }
-
+    if (!data[category]) data[category] = { correct: 0, wrong: 0, questions: 0 };
     data[category].correct += stats.correct;
     data[category].wrong += stats.wrong;
     data[category].questions++;
   });
 
-  categoryStatsList.innerHTML = Object.entries(data)
-    .map(([category, stats]) => {
-      const answered = stats.correct + stats.wrong;
-      const accuracy = answered
-        ? Math.round((stats.correct / answered) * 100)
-        : 0;
-
-      const level = accuracy < 50 ? 'low' : accuracy < 75 ? 'medium' : '';
-      const label = answered
-        ? `${stats.correct}/${answered} richtig (${accuracy}%)`
-        : `${stats.questions} Fragen, noch nicht beantwortet`;
-
-      return `
-        <div class="category-stat-row">
-          <span class="category-stat-name">${escapeHtml(category)}</span>
-          <div class="progress-bar">
-            <div class="progress-bar-fill ${level}" style="width:${accuracy}%"></div>
-          </div>
-          <span class="category-stat-percent">${label}</span>
-        </div>
-      `;
-    })
-    .join('');
+  categoryStatsList.innerHTML = Object.entries(data).map(([category, stats]) => {
+    const answered = stats.correct + stats.wrong;
+    const accuracy = answered ? Math.round((stats.correct / answered) * 100) : 0;
+    const level = accuracy < 50 ? 'low' : accuracy < 75 ? 'medium' : '';
+    const label = answered ? `${stats.correct}/${answered} richtig (${accuracy}%)` : `${stats.questions} Fragen, noch nicht beantwortet`;
+    return `
+      <div class="category-stat-row">
+        <span class="category-stat-name">${escapeHtml(category)}</span>
+        <div class="progress-bar"><div class="progress-bar-fill ${level}" style="width:${accuracy}%"></div></div>
+        <span class="category-stat-percent">${label}</span>
+      </div>
+    `;
+  }).join('');
 }
 
 function renderDetailedStats() {
   const category = statsFilterCategory.value;
   const filter = statsFilterPerformance.value;
-
-  let visible = category
-    ? questions.filter(question => question.category === category)
-    : [...questions];
+  let visible = category ? questions.filter(question => question.category === category) : [...questions];
 
   if (filter === 'weak') {
     visible = visible.filter(question => {
@@ -1021,7 +917,6 @@ function renderDetailedStats() {
   }
 
   visible.sort((a, b) => getPerformance(b).wrong - getPerformance(a).wrong);
-
   allQuestionsStats.innerHTML = visible.length
     ? visible.map(createStatCard).join('')
     : '<div class="empty-stats">Keine Fragen für diesen Filter vorhanden.</div>';
@@ -1029,19 +924,9 @@ function renderDetailedStats() {
 
 function createStatCard(question) {
   const stats = getPerformance(question);
-
-  const status =
-    stats.answered === 0
-      ? 'neutral'
-      : stats.wrong > stats.correct
-        ? 'weak'
-        : 'good';
-
+  const status = stats.answered === 0 ? 'neutral' : stats.wrong > stats.correct ? 'weak' : 'good';
   const category = question.category || 'Ohne Kategorie';
-  const accuracy =
-    stats.accuracy === null
-      ? 'Noch nicht beantwortet'
-      : `${stats.accuracy}% richtig`;
+  const accuracy = stats.accuracy === null ? 'Noch nicht beantwortet' : `${stats.accuracy}% richtig`;
 
   return `
     <article class="question-stat-card ${status}">
