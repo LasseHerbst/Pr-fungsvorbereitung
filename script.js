@@ -1,5 +1,17 @@
 const SUPABASE_URL = 'https://hhegggvsrcwyzbpyblxt.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_sv3o_ptV675_kwnGUYyVsg_u6JjFDxp';
+const IMAGE_BUCKET = 'question-images';
+
+const FALLBACK_PROFILES = [
+  { id: 1, display_name: 'Lasse', pin_code: '4827' },
+  { id: 2, display_name: 'Marie', pin_code: '6159' },
+  { id: 3, display_name: 'Rico', pin_code: '7342' },
+  { id: 4, display_name: 'Janosch', pin_code: '9581' },
+  { id: 5, display_name: 'Elias', pin_code: '3468' },
+  { id: 6, display_name: 'Etienne', pin_code: '8274' },
+  { id: 7, display_name: 'Reinhard', pin_code: '5693' },
+  { id: 8, display_name: 'Nist', pin_code: '2146' }
+];
 
 let questions = [];
 let profiles = [];
@@ -10,6 +22,7 @@ let quizQueue = [];
 let quizResults = [];
 let currentQuestionIndex = 0;
 let score = 0;
+let selectedImageFile = null;
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -87,8 +100,8 @@ async function api(path, options = {}) {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || `Datenbankfehler (${response.status})`);
+    const error = await response.text();
+    throw new Error(error || `Datenbankfehler (${response.status})`);
   }
 
   const type = response.headers.get('content-type') || '';
@@ -96,7 +109,13 @@ async function api(path, options = {}) {
 }
 
 async function loadProfiles() {
-  return api('profiles?select=id,display_name,pin_code&order=display_name.asc');
+  try {
+    const result = await api('profiles?select=id,display_name,pin_code&order=display_name.asc');
+    return result.length ? result : FALLBACK_PROFILES;
+  } catch (error) {
+    console.warn('Profile aus Supabase nicht verfügbar, Fallback wird verwendet.', error);
+    return FALLBACK_PROFILES;
+  }
 }
 
 async function loadQuestions() {
@@ -107,18 +126,30 @@ async function loadQuestions() {
     category: row.category,
     image: row.image,
     answers: row.answers || [],
-    correctIndex: row.correct_index,
+    correctIndex: row.correct_index
   }));
 }
 
 async function loadPersonalStats() {
   if (!currentProfile) return;
-  const rows = await api(`user_question_stats?select=question_id,correct_count,wrong_count,last_answered_at&profile_id=eq.${currentProfile.id}`);
-  personalStats = new Map(rows.map(row => [Number(row.question_id), {
-    correct: Number(row.correct_count) || 0,
-    wrong: Number(row.wrong_count) || 0,
-    lastAnsweredAt: row.last_answered_at || null
-  }]));
+
+  try {
+    const rows = await api(
+      `user_question_stats?select=question_id,correct_count,wrong_count,last_answered_at&profile_id=eq.${currentProfile.id}`
+    );
+
+    personalStats = new Map(rows.map(row => [
+      Number(row.question_id),
+      {
+        correct: Number(row.correct_count) || 0,
+        wrong: Number(row.wrong_count) || 0,
+        lastAnsweredAt: row.last_answered_at || null
+      }
+    ]));
+  } catch (error) {
+    console.warn('Persönliche Statistik konnte nicht geladen werden.', error);
+    personalStats = new Map();
+  }
 }
 
 async function saveQuestion(question) {
@@ -134,17 +165,22 @@ async function saveQuestion(question) {
       stats_wrong: 0
     })
   });
+
   return rows[0];
 }
 
 async function deleteQuestion(id) {
-  await api(`questions?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' });
+  await api(`questions?id=eq.${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
 }
 
 async function savePersonalStat(questionId, stats) {
-  const rows = await api('user_question_stats', {
+  await api('user_question_stats', {
     method: 'POST',
-    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    headers: {
+      Prefer: 'resolution=merge-duplicates,return=representation'
+    },
     body: JSON.stringify({
       profile_id: currentProfile.id,
       question_id: questionId,
@@ -153,48 +189,141 @@ async function savePersonalStat(questionId, stats) {
       last_answered_at: new Date().toISOString()
     })
   });
-  return rows?.[0] || null;
 }
 
 async function resetPersonalStats() {
-  await api(`user_question_stats?profile_id=eq.${currentProfile.id}`, { method: 'DELETE' });
+  await api(`user_question_stats?profile_id=eq.${currentProfile.id}`, {
+    method: 'DELETE'
+  });
+
   personalStats = new Map();
+}
+
+async function uploadImageToStorage(file) {
+  if (!file) return null;
+
+  const compressedImage = await compressImage(file);
+  const extension = compressedImage.type === 'image/png' ? 'png' : 'jpg';
+  const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
+  const objectPath = `questions/${fileName}`;
+
+  const response = await fetch(
+    `${SUPABASE_URL}/storage/v1/object/${IMAGE_BUCKET}/${objectPath}`,
+    {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': compressedImage.type,
+        'x-upsert': 'false'
+      },
+      body: compressedImage
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(
+      error ||
+      'Der Bild-Upload wurde von Supabase abgelehnt. Prüfe die Storage-Policies für den Bucket.'
+    );
+  }
+
+  return `${SUPABASE_URL}/storage/v1/object/public/${IMAGE_BUCKET}/${objectPath}`;
+}
+
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => reject(new Error('Das Bild konnte nicht gelesen werden.'));
+
+    reader.onload = () => {
+      const image = new Image();
+
+      image.onerror = () => reject(new Error('Das Bild ist ungültig.'));
+
+      image.onload = () => {
+        const maxSize = 1600;
+        let width = image.width;
+        let height = image.height;
+
+        if (width > maxSize || height > maxSize) {
+          const ratio = Math.min(maxSize / width, maxSize / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0, width, height);
+
+        canvas.toBlob(
+          blob => {
+            if (!blob) {
+              reject(new Error('Bild konnte nicht komprimiert werden.'));
+              return;
+            }
+
+            resolve(blob);
+          },
+          'image/jpeg',
+          0.82
+        );
+      };
+
+      image.src = reader.result;
+    };
+
+    reader.readAsDataURL(file);
+  });
 }
 
 async function init() {
   loadTheme();
+
+  profiles = await loadProfiles();
+  fillLoginNames();
+
   try {
-    [profiles, questions] = await Promise.all([loadProfiles(), loadQuestions()]);
-    fillLoginNames();
-    extractCategories();
-    renderCategoryFilters();
-    renderCategorySuggestions();
-    renderQuestionsList();
+    questions = await loadQuestions();
   } catch (error) {
     console.error(error);
-    loginError.textContent = 'Datenbank konnte nicht geladen werden. Bitte Seite neu laden.';
+    questions = [];
+    loginError.textContent =
+      'Fragen konnten gerade nicht geladen werden. Du kannst dich trotzdem anmelden.';
   }
 
-  const savedProfileId = localStorage.getItem('examAppProfileId');
-  if (savedProfileId) {
-    const savedProfile = profiles.find(profile => String(profile.id) === savedProfileId);
-    if (savedProfile) loginName.value = String(savedProfile.id);
-  }
+  extractCategories();
+  renderCategoryFilters();
+  renderCategorySuggestions();
+  renderQuestionsList();
+
   showLogin();
 }
 
 function fillLoginNames() {
-  loginName.innerHTML = '<option value="">Name auswählen …</option>' +
-    profiles.map(profile => `<option value="${profile.id}">${escapeHtml(profile.display_name)}</option>`).join('');
+  loginName.innerHTML =
+    '<option value="">Name auswählen …</option>' +
+    profiles
+      .map(profile => {
+        return `<option value="${profile.id}">${escapeHtml(profile.display_name)}</option>`;
+      })
+      .join('');
+
+  const savedProfileId = localStorage.getItem('examAppProfileId');
+  if (savedProfileId) {
+    loginName.value = savedProfileId;
+  }
 }
 
 function showLogin() {
-  loginForm.reset();
+  loginPin.value = '';
   loginError.textContent = '';
-  const savedProfileId = localStorage.getItem('examAppProfileId');
-  if (savedProfileId) loginName.value = savedProfileId;
   loginOverlay.classList.remove('hidden');
-  loginPin.focus();
 }
 
 function hideLogin() {
@@ -203,11 +332,13 @@ function hideLogin() {
 
 loginForm.addEventListener('submit', async event => {
   event.preventDefault();
+
   const profile = profiles.find(item => String(item.id) === loginName.value);
   const pin = loginPin.value.trim();
 
   if (!profile || !/^\d{4}$/.test(pin)) {
-    loginError.textContent = 'Bitte wähle einen Namen und gib eine vierstellige PIN ein.';
+    loginError.textContent =
+      'Bitte wähle einen Namen und gib eine vierstellige PIN ein.';
     return;
   }
 
@@ -220,17 +351,18 @@ loginForm.addEventListener('submit', async event => {
 
   loginSubmit.disabled = true;
   loginSubmit.textContent = 'Wird angemeldet …';
+
   try {
     currentProfile = profile;
     await loadPersonalStats();
+
     localStorage.setItem('examAppProfileId', String(profile.id));
     currentUserLabel.textContent = `Angemeldet: ${profile.display_name}`;
-    statsUserInfo.textContent = `Persönliche Lernergebnisse von ${profile.display_name}.`;
+    statsUserInfo.textContent =
+      `Persönliche Lernergebnisse von ${profile.display_name}.`;
+
     hideLogin();
     renderStatistics();
-  } catch (error) {
-    console.error(error);
-    loginError.textContent = 'Statistik konnte nicht geladen werden. Bitte erneut versuchen.';
   } finally {
     loginSubmit.disabled = false;
     loginSubmit.textContent = 'Anmelden';
@@ -251,29 +383,54 @@ function loadTheme() {
 }
 
 themeToggle.addEventListener('click', () => {
-  const nextTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', nextTheme);
-  localStorage.setItem('examAppTheme', nextTheme);
-  $('.theme-icon').textContent = nextTheme === 'dark' ? '☀️' : '🌙';
+  const current = document.documentElement.getAttribute('data-theme');
+  const theme = current === 'dark' ? 'light' : 'dark';
+
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('examAppTheme', theme);
+  $('.theme-icon').textContent = theme === 'dark' ? '☀️' : '🌙';
 });
 
 function showSection(section) {
   editorSection.style.display = section === 'editor' ? 'block' : 'none';
   quizSection.style.display = section === 'quiz' ? 'block' : 'none';
   statsSection.style.display = section === 'stats' ? 'block' : 'none';
+
   btnEditor.classList.toggle('active', section === 'editor');
   btnQuiz.classList.toggle('active', section === 'quiz');
   btnStats.classList.toggle('active', section === 'stats');
 }
 
 btnEditor.addEventListener('click', () => showSection('editor'));
-btnQuiz.addEventListener('click', () => { showSection('quiz'); showQuizStart(); });
-btnStats.addEventListener('click', () => { showSection('stats'); renderStatistics(); });
+btnQuiz.addEventListener('click', () => {
+  showSection('quiz');
+  showQuizStart();
+});
+btnStats.addEventListener('click', () => {
+  showSection('stats');
+  renderStatistics();
+});
 
 questionImage.addEventListener('change', event => {
   const file = event.target.files?.[0];
   imagePreview.innerHTML = '';
+  selectedImageFile = null;
+
   if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    alert('Bitte wähle eine Bilddatei aus.');
+    questionImage.value = '';
+    return;
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    alert('Das Bild ist zu groß. Bitte verwende ein Bild unter 10 MB.');
+    questionImage.value = '';
+    return;
+  }
+
+  selectedImageFile = file;
 
   const reader = new FileReader();
   reader.onload = loadEvent => {
@@ -285,39 +442,57 @@ questionImage.addEventListener('change', event => {
 });
 
 function extractCategories() {
-  categories = [...new Set(questions.map(question => question.category?.trim()).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b, 'de'));
+  categories = [
+    ...new Set(
+      questions
+        .map(question => question.category?.trim())
+        .filter(Boolean)
+    )
+  ].sort((a, b) => a.localeCompare(b, 'de'));
 }
 
 function renderCategorySuggestions() {
   categorySuggestions.innerHTML = '';
+
   categories.forEach(category => {
     const button = document.createElement('button');
-    button.className = 'category-suggestion';
     button.type = 'button';
+    button.className = 'category-suggestion';
     button.textContent = category;
-    button.addEventListener('click', () => { questionCategory.value = category; });
+
+    button.addEventListener('click', () => {
+      questionCategory.value = category;
+    });
+
     categorySuggestions.appendChild(button);
   });
 }
 
 function renderCategoryFilters() {
-  const editorValue = filterCategory.value;
-  const quizValue = quizCategoryFilter.value;
-  const statsValue = statsFilterCategory.value;
-  const options = '<option value="">Alle Kategorien</option>' +
-    categories.map(category => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join('');
+  const oldEditorValue = filterCategory.value;
+  const oldQuizValue = quizCategoryFilter.value;
+  const oldStatsValue = statsFilterCategory.value;
+
+  const options =
+    '<option value="">Alle Kategorien</option>' +
+    categories
+      .map(category => {
+        return `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`;
+      })
+      .join('');
 
   filterCategory.innerHTML = options;
   quizCategoryFilter.innerHTML = options;
   statsFilterCategory.innerHTML = options;
-  filterCategory.value = categories.includes(editorValue) ? editorValue : '';
-  quizCategoryFilter.value = categories.includes(quizValue) ? quizValue : '';
-  statsFilterCategory.value = categories.includes(statsValue) ? statsValue : '';
+
+  filterCategory.value = categories.includes(oldEditorValue) ? oldEditorValue : '';
+  quizCategoryFilter.value = categories.includes(oldQuizValue) ? oldQuizValue : '';
+  statsFilterCategory.value = categories.includes(oldStatsValue) ? oldStatsValue : '';
 }
 
 addAnswerBtn.addEventListener('click', () => {
   const index = answersContainer.querySelectorAll('.answer-row').length;
+
   const row = document.createElement('div');
   row.className = 'answer-row';
   row.innerHTML = `
@@ -325,14 +500,17 @@ addAnswerBtn.addEventListener('click', () => {
     <label class="correct-choice"><input type="radio" name="correct-answer" value="${index}" /> Richtig</label>
     <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
   `;
+
   answersContainer.appendChild(row);
   updateRemoveButtons();
 });
 
 answersContainer.addEventListener('click', event => {
   if (!event.target.classList.contains('remove-answer')) return;
+
   const rows = [...answersContainer.querySelectorAll('.answer-row')];
   if (rows.length <= 2) return;
+
   event.target.closest('.answer-row').remove();
   reindexAnswers();
   updateRemoveButtons();
@@ -340,14 +518,19 @@ answersContainer.addEventListener('click', event => {
 
 function updateRemoveButtons() {
   const rows = answersContainer.querySelectorAll('.answer-row');
-  rows.forEach(row => { row.querySelector('.remove-answer').disabled = rows.length <= 2; });
+
+  rows.forEach(row => {
+    row.querySelector('.remove-answer').disabled = rows.length <= 2;
+  });
 }
 
 function reindexAnswers() {
   const rows = [...answersContainer.querySelectorAll('.answer-row')];
   const selected = rows.find(row => row.querySelector('input[type="radio"]').checked) || rows[0];
+
   rows.forEach((row, index) => {
     row.querySelector('.answer-input').placeholder = `Antwort ${index + 1}`;
+
     const radio = row.querySelector('input[type="radio"]');
     radio.value = index;
     radio.checked = row === selected;
@@ -356,24 +539,33 @@ function reindexAnswers() {
 
 questionForm.addEventListener('submit', async event => {
   event.preventDefault();
+
   const rows = [...answersContainer.querySelectorAll('.answer-row')];
   const answers = rows.map(row => row.querySelector('.answer-input').value.trim());
   const correctIndex = rows.findIndex(row => row.querySelector('input[type="radio"]').checked);
 
   if (!questionText.value.trim() || answers.some(answer => !answer) || correctIndex < 0) {
-    alert('Bitte fülle die Frage und alle Antworten aus und markiere die richtige Antwort.');
+    alert('Bitte fülle die Frage, alle Antworten und die richtige Antwort aus.');
     return;
   }
 
   const submitButton = questionForm.querySelector('button[type="submit"]');
   submitButton.disabled = true;
-  submitButton.textContent = 'Wird gespeichert …';
+  submitButton.textContent = selectedImageFile
+    ? 'Bild wird hochgeladen …'
+    : 'Wird gespeichert …';
 
   try {
+    let imageUrl = null;
+
+    if (selectedImageFile) {
+      imageUrl = await uploadImageToStorage(selectedImageFile);
+    }
+
     const saved = await saveQuestion({
       text: questionText.value.trim(),
       category: questionCategory.value.trim() || null,
-      image: imagePreview.querySelector('img')?.src || null,
+      image: imageUrl,
       answers,
       correctIndex
     });
@@ -386,16 +578,22 @@ questionForm.addEventListener('submit', async event => {
       answers: saved.answers,
       correctIndex: saved.correct_index
     });
+
     extractCategories();
     renderCategoryFilters();
     renderCategorySuggestions();
     renderQuestionsList();
+
     questionForm.reset();
     imagePreview.innerHTML = '';
+    selectedImageFile = null;
     resetAnswersToDefault();
   } catch (error) {
     console.error(error);
-    alert('Speichern fehlgeschlagen. Bei großen Bildern kann der Datenbank-Eintrag zu groß sein.');
+
+    alert(
+      'Speichern fehlgeschlagen. Falls es beim Bild passiert: Prüfe in Supabase Storage, ob beim Bucket question-images Uploads erlaubt sind.'
+    );
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = 'Frage speichern';
@@ -420,52 +618,74 @@ function resetAnswersToDefault() {
 clearFormBtn.addEventListener('click', () => {
   questionForm.reset();
   imagePreview.innerHTML = '';
+  selectedImageFile = null;
   resetAnswersToDefault();
 });
 
 filterCategory.addEventListener('change', renderQuestionsList);
 
 function renderQuestionsList() {
-  const selected = filterCategory.value;
-  const visible = selected ? questions.filter(question => question.category === selected) : questions;
+  const category = filterCategory.value;
+  const visible = category
+    ? questions.filter(question => question.category === category)
+    : questions;
+
   questionCount.textContent = `${visible.length} von ${questions.length} Fragen`;
 
   if (!visible.length) {
-    questionsList.innerHTML = `<div class="empty-stats">${questions.length ? 'Keine Fragen in dieser Kategorie.' : 'Noch keine Fragen gespeichert.'}</div>`;
+    questionsList.innerHTML =
+      '<div class="empty-stats">Noch keine Fragen in dieser Kategorie.</div>';
     return;
   }
 
-  questionsList.innerHTML = visible.map((question, index) => {
-    const category = question.category ? `<span class="category-badge">${escapeHtml(question.category)}</span>` : '';
-    const image = question.image ? `<img src="${question.image}" alt="Fragebild" />` : '';
-    const answers = question.answers.map((answer, answerIndex) =>
-      `<li>${answerIndex === question.correctIndex ? '●' : '○'} ${escapeHtml(answer)}</li>`
-    ).join('');
-    return `
-      <article class="question-card">
-        <div class="question-card-header"><strong>Frage ${index + 1}</strong>${category}</div>
-        <p>${escapeHtml(question.text)}</p>
-        ${image}
-        <ul>${answers}</ul>
-        <button class="delete-question" type="button" data-id="${question.id}">Frage löschen</button>
-      </article>
-    `;
-  }).join('');
+  questionsList.innerHTML = visible
+    .map((question, index) => {
+      const categoryBadge = question.category
+        ? `<span class="category-badge">${escapeHtml(question.category)}</span>`
+        : '';
+
+      const image = question.image
+        ? `<img src="${question.image}" alt="Fragebild" />`
+        : '';
+
+      const answers = question.answers
+        .map((answer, answerIndex) => {
+          return `<li>${answerIndex === question.correctIndex ? '●' : '○'} ${escapeHtml(answer)}</li>`;
+        })
+        .join('');
+
+      return `
+        <article class="question-card">
+          <div class="question-card-header">
+            <strong>Frage ${index + 1}</strong>
+            ${categoryBadge}
+          </div>
+          <p>${escapeHtml(question.text)}</p>
+          ${image}
+          <ul>${answers}</ul>
+          <button class="delete-question" type="button" data-id="${question.id}">Frage löschen</button>
+        </article>
+      `;
+    })
+    .join('');
 
   questionsList.querySelectorAll('.delete-question').forEach(button => {
     button.addEventListener('click', async () => {
-      if (!confirm('Möchtest du diese Frage für alle wirklich löschen?')) return;
+      if (!confirm('Möchtest du diese Frage für alle löschen?')) return;
+
       try {
         await deleteQuestion(button.dataset.id);
+
         questions = questions.filter(question => String(question.id) !== button.dataset.id);
         personalStats.delete(Number(button.dataset.id));
+
         extractCategories();
         renderCategoryFilters();
         renderCategorySuggestions();
         renderQuestionsList();
       } catch (error) {
         console.error(error);
-        alert('Löschen fehlgeschlagen.');
+        alert('Die Frage konnte nicht gelöscht werden.');
       }
     });
   });
@@ -486,35 +706,47 @@ function startQuiz() {
     return;
   }
 
-  if (quizModeFilter.value === 'weak') selected = createWeakQueue(selected);
+  if (quizModeFilter.value === 'weak') {
+    selected = createWeakQueue(selected);
+  }
+
   quizQueue = shuffle(selected);
   quizResults = [];
   currentQuestionIndex = 0;
   score = 0;
+
   showQuizActive();
   showQuestion();
 }
 
 function createWeakQueue(source) {
   const queue = [];
+
   source.forEach(question => {
     const stats = getPerformance(question);
     let repetitions = 1;
+
     if (stats.answered === 0) repetitions = 2;
     else if (stats.accuracy < 40) repetitions = 4;
     else if (stats.accuracy < 70) repetitions = 3;
     else if (stats.accuracy < 90) repetitions = 2;
-    for (let index = 0; index < repetitions; index++) queue.push(question);
+
+    for (let i = 0; i < repetitions; i++) {
+      queue.push(question);
+    }
   });
+
   return queue;
 }
 
 function shuffle(items) {
   const output = [...items];
+
   for (let index = output.length - 1; index > 0; index--) {
     const random = Math.floor(Math.random() * (index + 1));
     [output[index], output[random]] = [output[random], output[index]];
   }
+
   return output;
 }
 
@@ -534,17 +766,28 @@ function showQuizEnd() {
   quizStart.style.display = 'none';
   quizActive.style.display = 'none';
   quizEnd.style.display = 'block';
-  quizResult.textContent = `Du hast ${score} von ${quizQueue.length} Quizrunden richtig beantwortet.`;
+
+  quizResult.textContent =
+    `Du hast ${score} von ${quizQueue.length} Quizrunden richtig beantwortet.`;
+
   renderQuizCategoryResult();
 }
 
 function showQuestion() {
   const question = quizQueue[currentQuestionIndex];
-  quizProgress.textContent = `Frage ${currentQuestionIndex + 1} von ${quizQueue.length}`;
+
+  quizProgress.textContent =
+    `Frage ${currentQuestionIndex + 1} von ${quizQueue.length}`;
+
   quizCategoryBadge.textContent = question.category || '';
   quizQuestionText.textContent = question.text;
-  quizQuestionImage.style.display = question.image ? 'block' : 'none';
-  if (question.image) quizQuestionImage.src = question.image;
+
+  if (question.image) {
+    quizQuestionImage.src = question.image;
+    quizQuestionImage.style.display = 'block';
+  } else {
+    quizQuestionImage.style.display = 'none';
+  }
 
   quizAnswers.innerHTML = '';
   quizFeedback.className = 'quiz-feedback';
@@ -555,7 +798,9 @@ function showQuestion() {
     button.className = 'quiz-answer-btn';
     button.type = 'button';
     button.textContent = answer;
+
     button.addEventListener('click', () => answerQuestion(index, button));
+
     quizAnswers.appendChild(button);
   });
 }
@@ -563,64 +808,101 @@ function showQuestion() {
 async function answerQuestion(answerIndex, clickedButton) {
   const question = quizQueue[currentQuestionIndex];
   const buttons = [...quizAnswers.querySelectorAll('.quiz-answer-btn')];
-  buttons.forEach(button => { button.disabled = true; });
+
+  buttons.forEach(button => {
+    button.disabled = true;
+  });
 
   const correct = answerIndex === question.correctIndex;
   const stats = getPerformance(question);
+
   if (correct) {
     stats.correct++;
     score++;
+
     clickedButton.classList.add('correct');
     quizFeedback.textContent = 'Richtig! 🎉';
     quizFeedback.className = 'quiz-feedback show correct';
   } else {
     stats.wrong++;
+
     clickedButton.classList.add('wrong');
     buttons[question.correctIndex]?.classList.add('correct');
-    quizFeedback.textContent = 'Leider falsch. Die richtige Antwort ist markiert.';
+
+    quizFeedback.textContent =
+      'Leider falsch. Die richtige Antwort ist markiert.';
     quizFeedback.className = 'quiz-feedback show wrong';
   }
 
   personalStats.set(Number(question.id), stats);
-  quizResults.push({ category: question.category || 'Ohne Kategorie', correct });
+  quizResults.push({
+    category: question.category || 'Ohne Kategorie',
+    correct
+  });
+
   try {
     await savePersonalStat(question.id, stats);
   } catch (error) {
     console.error(error);
-    alert('Antwort wurde angezeigt, konnte aber nicht in deiner Statistik gespeichert werden.');
   }
+
   nextQuestionBtn.style.display = 'inline-block';
 }
 
 function nextQuestion() {
   currentQuestionIndex++;
-  if (currentQuestionIndex >= quizQueue.length) showQuizEnd();
-  else showQuestion();
+
+  if (currentQuestionIndex >= quizQueue.length) {
+    showQuizEnd();
+  } else {
+    showQuestion();
+  }
 }
 
 function renderQuizCategoryResult() {
   const summary = {};
+
   quizResults.forEach(result => {
-    if (!summary[result.category]) summary[result.category] = { correct: 0, total: 0 };
+    if (!summary[result.category]) {
+      summary[result.category] = { correct: 0, total: 0 };
+    }
+
     summary[result.category].total++;
-    if (result.correct) summary[result.category].correct++;
+
+    if (result.correct) {
+      summary[result.category].correct++;
+    }
   });
-  const rows = Object.entries(summary).map(([category, data]) =>
-    `<li>${escapeHtml(category)}: ${data.correct}/${data.total} richtig</li>`
-  ).join('');
-  quizCategoryResult.innerHTML = rows ? `<h4>Ergebnis nach Kategorien</h4><ul>${rows}</ul>` : '';
+
+  const rows = Object.entries(summary)
+    .map(([category, data]) => {
+      return `<li>${escapeHtml(category)}: ${data.correct}/${data.total} richtig</li>`;
+    })
+    .join('');
+
+  quizCategoryResult.innerHTML = rows
+    ? `<h4>Ergebnis nach Kategorien</h4><ul>${rows}</ul>`
+    : '';
 }
 
 statsFilterCategory.addEventListener('change', renderDetailedStats);
 statsFilterPerformance.addEventListener('change', renderDetailedStats);
+
 resetStatsBtn.addEventListener('click', async () => {
-  if (!currentProfile || !confirm('Möchtest du wirklich nur deine persönliche Statistik zurücksetzen?')) return;
+  if (!currentProfile) return;
+
+  const confirmed = confirm(
+    'Möchtest du wirklich nur deine persönliche Statistik zurücksetzen?'
+  );
+
+  if (!confirmed) return;
+
   try {
     await resetPersonalStats();
     renderStatistics();
   } catch (error) {
     console.error(error);
-    alert('Statistik konnte nicht zurückgesetzt werden.');
+    alert('Die Statistik konnte nicht zurückgesetzt werden.');
   }
 });
 
@@ -629,72 +911,117 @@ function getPerformance(question) {
   const correct = Number(stored?.correct) || 0;
   const wrong = Number(stored?.wrong) || 0;
   const answered = correct + wrong;
-  return { correct, wrong, answered, accuracy: answered ? Math.round((correct / answered) * 100) : null };
+
+  return {
+    correct,
+    wrong,
+    answered,
+    accuracy: answered ? Math.round((correct / answered) * 100) : null
+  };
 }
 
 function renderStatistics() {
   if (!currentProfile) return;
-  statsUserInfo.textContent = `Persönliche Lernergebnisse von ${currentProfile.display_name}.`;
-  const total = questions.reduce((summary, question) => {
-    const stats = getPerformance(question);
-    summary.correct += stats.correct;
-    summary.wrong += stats.wrong;
-    return summary;
-  }, { correct: 0, wrong: 0 });
-  const answered = total.correct + total.wrong;
+
+  const totals = questions.reduce(
+    (summary, question) => {
+      const stats = getPerformance(question);
+      summary.correct += stats.correct;
+      summary.wrong += stats.wrong;
+      return summary;
+    },
+    { correct: 0, wrong: 0 }
+  );
+
+  const answered = totals.correct + totals.wrong;
 
   statTotalQuestions.textContent = questions.length;
   statTotalAnswered.textContent = answered;
-  statCorrect.textContent = total.correct;
-  statWrong.textContent = total.wrong;
-  statAccuracy.textContent = `${answered ? Math.round((total.correct / answered) * 100) : 0}%`;
+  statCorrect.textContent = totals.correct;
+  statWrong.textContent = totals.wrong;
+  statAccuracy.textContent =
+    `${answered ? Math.round((totals.correct / answered) * 100) : 0}%`;
+
   renderWeakQuestions();
   renderCategoryStats();
   renderDetailedStats();
 }
 
 function renderWeakQuestions() {
-  const weak = questions.filter(question => getPerformance(question).wrong > 0)
+  const weak = questions
+    .filter(question => getPerformance(question).wrong > 0)
     .sort((a, b) => getPerformance(b).wrong - getPerformance(a).wrong);
+
   weakQuestionsList.innerHTML = weak.length
     ? weak.map(createStatCard).join('')
-    : '<div class="empty-stats">Noch keine falsch beantworteten Fragen. Starte ein Quiz, um Daten zu sammeln.</div>';
+    : '<div class="empty-stats">Noch keine falsch beantworteten Fragen.</div>';
 }
 
 function renderCategoryStats() {
-  const categoriesData = {};
+  const data = {};
+
   questions.forEach(question => {
     const category = question.category || 'Ohne Kategorie';
     const stats = getPerformance(question);
-    if (!categoriesData[category]) categoriesData[category] = { correct: 0, wrong: 0, questions: 0 };
-    categoriesData[category].correct += stats.correct;
-    categoriesData[category].wrong += stats.wrong;
-    categoriesData[category].questions++;
+
+    if (!data[category]) {
+      data[category] = { correct: 0, wrong: 0, questions: 0 };
+    }
+
+    data[category].correct += stats.correct;
+    data[category].wrong += stats.wrong;
+    data[category].questions++;
   });
 
-  const entries = Object.entries(categoriesData);
-  categoryStatsList.innerHTML = entries.length ? entries.map(([category, data]) => {
-    const answered = data.correct + data.wrong;
-    const accuracy = answered ? Math.round((data.correct / answered) * 100) : 0;
-    const level = accuracy < 50 ? 'low' : accuracy < 75 ? 'medium' : '';
-    const label = answered ? `${data.correct}/${answered} richtig (${accuracy}%)` : `${data.questions} Fragen, noch nicht beantwortet`;
-    return `<div class="category-stat-row"><span class="category-stat-name">${escapeHtml(category)}</span><div class="progress-bar"><div class="progress-bar-fill ${level}" style="width:${accuracy}%"></div></div><span class="category-stat-percent">${label}</span></div>`;
-  }).join('') : '<div class="empty-stats">Noch keine Kategorien vorhanden.</div>';
+  categoryStatsList.innerHTML = Object.entries(data)
+    .map(([category, stats]) => {
+      const answered = stats.correct + stats.wrong;
+      const accuracy = answered
+        ? Math.round((stats.correct / answered) * 100)
+        : 0;
+
+      const level = accuracy < 50 ? 'low' : accuracy < 75 ? 'medium' : '';
+      const label = answered
+        ? `${stats.correct}/${answered} richtig (${accuracy}%)`
+        : `${stats.questions} Fragen, noch nicht beantwortet`;
+
+      return `
+        <div class="category-stat-row">
+          <span class="category-stat-name">${escapeHtml(category)}</span>
+          <div class="progress-bar">
+            <div class="progress-bar-fill ${level}" style="width:${accuracy}%"></div>
+          </div>
+          <span class="category-stat-percent">${label}</span>
+        </div>
+      `;
+    })
+    .join('');
 }
 
 function renderDetailedStats() {
   const category = statsFilterCategory.value;
-  const performance = statsFilterPerformance.value;
-  let visible = category ? questions.filter(question => question.category === category) : [...questions];
-  if (performance === 'weak') visible = visible.filter(question => {
-    const stats = getPerformance(question);
-    return stats.wrong > stats.correct;
-  });
-  if (performance === 'good') visible = visible.filter(question => {
-    const stats = getPerformance(question);
-    return stats.answered > 0 && stats.correct >= stats.wrong;
-  });
+  const filter = statsFilterPerformance.value;
+
+  let visible = category
+    ? questions.filter(question => question.category === category)
+    : [...questions];
+
+  if (filter === 'weak') {
+    visible = visible.filter(question => {
+      const stats = getPerformance(question);
+      return stats.wrong > stats.correct;
+    });
+  }
+
+  if (filter === 'good') {
+    visible = visible.filter(question => {
+      const stats = getPerformance(question);
+      return stats.answered > 0 && stats.correct >= stats.wrong;
+    });
+  }
+
   visible.sort((a, b) => getPerformance(b).wrong - getPerformance(a).wrong);
+
   allQuestionsStats.innerHTML = visible.length
     ? visible.map(createStatCard).join('')
     : '<div class="empty-stats">Keine Fragen für diesen Filter vorhanden.</div>';
@@ -702,10 +1029,34 @@ function renderDetailedStats() {
 
 function createStatCard(question) {
   const stats = getPerformance(question);
-  const status = stats.answered === 0 ? 'neutral' : stats.wrong > stats.correct ? 'weak' : 'good';
+
+  const status =
+    stats.answered === 0
+      ? 'neutral'
+      : stats.wrong > stats.correct
+        ? 'weak'
+        : 'good';
+
   const category = question.category || 'Ohne Kategorie';
-  const accuracy = stats.accuracy === null ? 'Noch nicht beantwortet' : `${stats.accuracy}% richtig`;
-  return `<article class="question-stat-card ${status}"><div class="question-stat-header"><strong>Frage</strong><span class="category-badge">${escapeHtml(category)}</span></div><p class="question-stat-text">${escapeHtml(question.text)}</p><div class="question-stat-values"><span class="stat-pill correct">✓ ${stats.correct} richtig</span><span class="stat-pill wrong">✕ ${stats.wrong} falsch</span><span class="stat-pill accuracy">${accuracy}</span></div></article>`;
+  const accuracy =
+    stats.accuracy === null
+      ? 'Noch nicht beantwortet'
+      : `${stats.accuracy}% richtig`;
+
+  return `
+    <article class="question-stat-card ${status}">
+      <div class="question-stat-header">
+        <strong>Frage</strong>
+        <span class="category-badge">${escapeHtml(category)}</span>
+      </div>
+      <p class="question-stat-text">${escapeHtml(question.text)}</p>
+      <div class="question-stat-values">
+        <span class="stat-pill correct">✓ ${stats.correct} richtig</span>
+        <span class="stat-pill wrong">✕ ${stats.wrong} falsch</span>
+        <span class="stat-pill accuracy">${accuracy}</span>
+      </div>
+    </article>
+  `;
 }
 
 function escapeHtml(value) {
