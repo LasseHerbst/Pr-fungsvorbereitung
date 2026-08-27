@@ -50,6 +50,7 @@
       <nav aria-label="Hauptnavigation">
         <button id="btn-editor" class="active" type="button">Fragen-Editor</button>
         <button id="btn-quiz" type="button">Lern- &amp; Quiz-Modus</button>
+        <button id="btn-exam" type="button">🎯 Prüfungssimulation</button>
         <button id="btn-stats" type="button">Meine Statistik</button>
       </nav>
     </div>
@@ -140,17 +141,6 @@
               <option value="favorites">★ Nur meine Merkliste</option>
             </select>
           </div>
-          <div class="quiz-options">
-            <label for="quiz-duration">Zeitlimit (Minuten)</label>
-            <input id="quiz-duration" type="number" min="1" max="180" value="60" />
-          </div>
-          <div class="quiz-options">
-            <label for="print-include-answers">Druckoptionen</label>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <button id="print-quiz" type="button" class="secondary-button">Drucken (prüfungsformat)</button>
-              <label style="font-weight:500;"><input id="print-include-answers" type="checkbox" /> Antwortschlüssel anhängen</label>
-            </div>
-          </div>
         </div>
         <button id="start-quiz" type="button">Quiz starten</button>
       </div>
@@ -160,7 +150,6 @@
           <div class="quiz-progress-container">
             <span id="quiz-progress">Frage 1 von 1</span>
             <span id="quiz-category-badge" class="category-badge"></span>
-            <span id="quiz-timer" class="quiz-timer" aria-live="polite" style="margin-left:8px;">00:00</span>
           </div>
           <button id="quit-quiz" class="secondary-button" type="button">Beenden</button>
         </div>
@@ -180,6 +169,70 @@
         <p id="quiz-result" class="quiz-result"></p>
         <div id="quiz-category-result" class="quiz-category-result"></div>
         <button id="restart-quiz" type="button">Noch einmal spielen</button>
+      </div>
+    </section>
+
+    <!-- Prüfungssimulation -->
+    <section id="exam-section" style="display:none;">
+      <div id="exam-start">
+        <h2>🎯 Prüfungssimulation</h2>
+        <p>Beantworte Fragen unter Zeitdruck. Kein Zurück, kein Verzögern.</p>
+
+        <div class="quiz-options-grid">
+          <div class="quiz-options">
+            <label for="exam-category-filter">Kategorie</label>
+            <select id="exam-category-filter">
+              <option value="">Alle Kategorien</option>
+            </select>
+          </div>
+          <div class="quiz-options">
+            <label for="exam-mode-filter">Auswahl</label>
+            <select id="exam-mode-filter">
+              <option value="all">Alle Fragen</option>
+              <option value="weak">Meine schwachen Fragen</option>
+              <option value="favorites">★ Nur meine Merkliste</option>
+            </select>
+          </div>
+          <div class="quiz-options">
+            <label for="exam-duration">Zeitlimit (Minuten)</label>
+            <input id="exam-duration" type="number" min="1" max="180" value="60" />
+          </div>
+          <div class="quiz-options">
+            <label for="exam-print-answers">Druckoptionen</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button id="exam-print" type="button" class="secondary-button">Drucken</button>
+              <label style="font-weight:500;"><input id="exam-print-answers" type="checkbox" /> Antwortschlüssel</label>
+            </div>
+          </div>
+        </div>
+        <button id="start-exam" type="button">Prüfung starten</button>
+      </div>
+
+      <div id="exam-active" style="display:none;">
+        <div class="quiz-header">
+          <div class="quiz-progress-container">
+            <span id="exam-progress">Frage 1 von 1</span>
+            <span id="exam-category-badge" class="category-badge"></span>
+            <span id="exam-timer" class="quiz-timer" aria-live="polite" style="margin-left:8px;">00:00</span>
+          </div>
+          <button id="quit-exam" class="secondary-button" type="button">Prüfung beenden</button>
+        </div>
+
+        <div id="exam-question-container">
+          <p id="exam-question-text" class="quiz-question"></p>
+          <img id="exam-question-image" src="" alt="Fragebild" style="display:none;" />
+          <div id="exam-answers"></div>
+        </div>
+
+        <div id="exam-feedback" class="quiz-feedback" aria-live="polite"></div>
+        <button id="exam-next" type="button" style="display:none;">Nächste Frage</button>
+      </div>
+
+      <div id="exam-end" style="display:none;">
+        <h2>Prüfung abgeschlossen! 🎉</h2>
+        <p id="exam-result" class="quiz-result"></p>
+        <div id="exam-category-result" class="quiz-category-result"></div>
+        <button id="restart-exam" type="button">Noch einmal</button>
       </div>
     </section>
 
