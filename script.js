@@ -74,6 +74,13 @@ const quizFeedback = $('#quiz-feedback');
 const nextQuestionBtn = $('#next-question');
 const quizResult = $('#quiz-result');
 const quizCategoryResult = $('#quiz-category-result');
+const quizDurationInput = $('#quiz-duration');
+const printQuizBtn = $('#print-quiz');
+const printIncludeAnswers = $('#print-include-answers');
+const quizTimerDisplay = $('#quiz-timer');
+
+let quizRemainingSeconds = 0;
+let quizTimerInterval = null;
 
 const statsUserInfo = $('#stats-user-info');
 const statTotalQuestions = $('#stat-total-questions');
@@ -662,6 +669,8 @@ startQuizBtn.addEventListener('click', startQuiz);
 restartQuizBtn.addEventListener('click', startQuiz);
 quitQuizBtn.addEventListener('click', showQuizStart);
 nextQuestionBtn.addEventListener('click', nextQuestion);
+if (printQuizBtn) printQuizBtn.addEventListener('click', printQuiz);
+window.addEventListener('beforeunload', () => stopTimer());
 
 function startQuiz() {
   let selected = quizCategoryFilter.value
@@ -686,6 +695,12 @@ function startQuiz() {
   quizResults = [];
   currentQuestionIndex = 0;
   score = 0;
+
+  // Start timer based on input (minutes)
+  const minutes = quizDurationInput && quizDurationInput.value ? Math.max(1, Number(quizDurationInput.value)) : 60;
+  quizRemainingSeconds = Math.floor(minutes) * 60;
+  startTimer();
+
   showQuizActive();
   showQuestion();
 }
@@ -717,6 +732,7 @@ function showQuizStart() {
   quizStart.style.display = 'block';
   quizActive.style.display = 'none';
   quizEnd.style.display = 'none';
+  stopTimer();
 }
 
 function showQuizActive() {
@@ -726,6 +742,7 @@ function showQuizActive() {
 }
 
 function showQuizEnd() {
+  stopTimer();
   quizStart.style.display = 'none';
   quizActive.style.display = 'none';
   quizEnd.style.display = 'block';
@@ -758,6 +775,82 @@ function showQuestion() {
     button.addEventListener('click', () => answerQuestion(index, button));
     quizAnswers.appendChild(button);
   });
+}
+
+// Timer and print helper functions for the exam simulation
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+function updateTimerDisplay() {
+  if (!quizTimerDisplay) return;
+  quizTimerDisplay.textContent = formatTime(quizRemainingSeconds);
+  quizTimerDisplay.setAttribute('aria-label', `Verbleibende Zeit ${quizTimerDisplay.textContent}`);
+}
+
+function startTimer() {
+  stopTimer();
+  updateTimerDisplay();
+  quizTimerInterval = setInterval(() => {
+    quizRemainingSeconds--;
+    updateTimerDisplay();
+    if (quizRemainingSeconds <= 0) {
+      stopTimer();
+      alert('Zeit abgelaufen. Die Prüfung ist beendet.');
+      showQuizEnd();
+    }
+  }, 1000);
+}
+
+function stopTimer() {
+  if (quizTimerInterval) { clearInterval(quizTimerInterval); quizTimerInterval = null; }
+}
+
+// Print current selection in an exam-friendly layout (opens print window)
+function printQuiz() {
+  let selected = quizCategoryFilter.value
+    ? questions.filter(question => question.category === quizCategoryFilter.value)
+    : [...questions];
+  if (quizModeFilter.value === 'favorites') selected = selected.filter(question => isFavorite(question.id));
+  if (!selected.length) { alert('Keine Fragen für die aktuelle Auswahl zum Drucken.'); return; }
+
+  const includeAnswers = !!(printIncludeAnswers && printIncludeAnswers.checked);
+  const win = window.open('', '_blank');
+  if (!win) { alert('Popup-Blocker verhindert das Öffnen des Druckfensters.'); return; }
+
+  const style = `
+    body{font-family:Inter, Arial, sans-serif;padding:20px;color:#111}
+    h1{font-size:18px;margin-bottom:6px}
+    .question{page-break-inside:avoid;margin-bottom:18px}
+    .answers{margin-left:18px}
+    img{max-width:100%;height:auto;margin:8px 0}
+    .answer-item{margin:6px 0}
+    .answer-key{margin-top:24px;border-top:1px solid #ddd;padding-top:12px}
+  `;
+
+  const letters = ['A','B','C','D','E','F'];
+  const body = [`<html><head><title>Prüfungsbogen</title><style>${style}</style></head><body><h1>Prüfungsbogen — ${new Date().toLocaleString('de-DE')}</h1>`];
+
+  selected.forEach((q, idx) => {
+    body.push(`<div class="question"><strong>Frage ${idx+1}:</strong><p>${escapeHtml(q.text)}</p>`);
+    if (q.image) body.push(`<img src="${q.image}" alt="Fragebild" />`);
+    body.push('<ol class="answers" type="A">');
+    q.answers.forEach((a, i) => body.push(`<li class="answer-item">${escapeHtml(a)}</li>`));
+    body.push('</ol></div>');
+  });
+
+  if (includeAnswers) {
+    body.push('<div class="answer-key"><h2>Antwortschlüssel</h2><ol>');
+    selected.forEach((q) => body.push(`<li>${letters[q.correctIndex] || q.correctIndex}</li>`));
+    body.push('</ol></div>');
+  }
+
+  body.push('</body></html>');
+  win.document.open(); win.document.write(body.join('')); win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 300);
 }
 
 async function answerQuestion(answerIndex, clickedButton) {

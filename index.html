@@ -140,6 +140,17 @@
               <option value="favorites">★ Nur meine Merkliste</option>
             </select>
           </div>
+          <div class="quiz-options">
+            <label for="quiz-duration">Zeitlimit (Minuten)</label>
+            <input id="quiz-duration" type="number" min="1" max="180" value="60" />
+          </div>
+          <div class="quiz-options">
+            <label for="print-include-answers">Druckoptionen</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button id="print-quiz" type="button" class="secondary-button">Drucken (prüfungsformat)</button>
+              <label style="font-weight:500;"><input id="print-include-answers" type="checkbox" /> Antwortschlüssel anhängen</label>
+            </div>
+          </div>
         </div>
         <button id="start-quiz" type="button">Quiz starten</button>
       </div>
@@ -149,6 +160,7 @@
           <div class="quiz-progress-container">
             <span id="quiz-progress">Frage 1 von 1</span>
             <span id="quiz-category-badge" class="category-badge"></span>
+            <span id="quiz-timer" class="quiz-timer" aria-live="polite" style="margin-left:8px;">00:00</span>
           </div>
           <button id="quit-quiz" class="secondary-button" type="button">Beenden</button>
         </div>
