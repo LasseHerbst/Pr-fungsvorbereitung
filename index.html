@@ -51,6 +51,7 @@
         <button id="btn-editor" class="active" type="button">Fragen-Editor</button>
         <button id="btn-quiz" type="button">Lern- &amp; Quiz-Modus</button>
         <button id="btn-exam" type="button">🎯 Prüfungssimulation</button>
+        <button id="btn-logins" type="button">Anmeldeverlauf</button>
         <button id="btn-stats" type="button">Meine Statistik</button>
       </nav>
     </div>
@@ -234,6 +235,29 @@
         <div id="exam-category-result" class="quiz-category-result"></div>
         <button id="restart-exam" type="button">Noch einmal</button>
       </div>
+    </section>
+
+    <!-- Anmeldeverlauf -->
+    <section id="login-history-section" style="display:none;">
+      <div class="section-heading">
+        <div>
+          <h2>🔒 Anmeldeverlauf</h2>
+          <p>Zeigt lokale &amp; synchronisierte Login-Ereignisse.</p>
+        </div>
+      </div>
+
+      <div class="filter-controls" style="gap:10px;align-items:center;">
+        <label for="login-history-profile">Profil</label>
+        <select id="login-history-profile"><option value="">Alle</option></select>
+        <label for="login-history-from">Von</label>
+        <input id="login-history-from" type="date" />
+        <label for="login-history-to">Bis</label>
+        <input id="login-history-to" type="date" />
+        <button id="login-history-sync" class="secondary-button" type="button">Synchronisieren</button>
+        <button id="login-history-export" class="outline-button" type="button">Export CSV</button>
+      </div>
+
+      <div id="login-history-list" style="margin-top:18px;"></div>
     </section>
 
     <!-- Persönliche Statistik -->

@@ -40,10 +40,12 @@ const themeToggle = $('#theme-toggle');
 const btnEditor = $('#btn-editor');
 const btnQuiz = $('#btn-quiz');
 const btnExam = $('#btn-exam');
+const btnLogins = $('#btn-logins');
 const btnStats = $('#btn-stats');
 const editorSection = $('#editor-section');
 const quizSection = $('#quiz-section');
 const examSection = $('#exam-section');
+const loginHistorySection = $('#login-history-section');
 const statsSection = $('#stats-section');
 
 const questionForm = $('#question-form');
@@ -279,6 +281,124 @@ async function resetPersonalStats() {
   personalStats = new Map();
 }
 
+// --- Login event storage & sync (localStorage + Supabase)
+function loadLocalLoginEvents() {
+  try {
+    return JSON.parse(localStorage.getItem('loginEvents') || '[]');
+  } catch (e) {
+    console.warn('Fehler beim Laden lokaler Login-Events', e);
+    return [];
+  }
+}
+
+function saveLocalLoginEvents(events) {
+  try {
+    localStorage.setItem('loginEvents', JSON.stringify(events));
+  } catch (e) {
+    console.warn('Fehler beim Speichern lokaler Login-Events', e);
+  }
+}
+
+function addLocalLoginEvent(event) {
+  const events = loadLocalLoginEvents();
+  // ensure timestamp exists
+  const entry = Object.assign({ timestamp: new Date().toISOString(), action: 'login', synced: false }, event);
+  events.unshift(entry);
+  saveLocalLoginEvents(events);
+  return entry;
+}
+
+async function syncPendingLoginEvents() {
+  const events = loadLocalLoginEvents();
+  let changed = false;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev.synced) continue;
+    try {
+      // send to Supabase table 'login_events'
+      await api('login_events', {
+        method: 'POST',
+        body: JSON.stringify({ profile_id: ev.profile_id, display_name: ev.display_name, timestamp: ev.timestamp, action: ev.action })
+      });
+      ev.synced = true;
+      changed = true;
+    } catch (err) {
+      console.warn('Sync Login-Event fehlgeschlagen, wird später erneut versucht.', err);
+      // keep for retry
+    }
+  }
+
+  if (changed) saveLocalLoginEvents(events);
+  renderLoginHistory();
+  return events.filter(e => !e.synced).length;
+}
+
+function recordLoginEvent(event) {
+  const entry = addLocalLoginEvent(event);
+  renderLoginHistory();
+  // try syncing in background
+  syncPendingLoginEvents().catch(err => console.warn('Hintergrund-Sync fehlgeschlagen', err));
+  return entry;
+}
+
+function formatDateTimeIso(iso) {
+  try { return new Date(iso).toLocaleString('de-DE'); } catch { return iso; }
+}
+
+function renderLoginHistory() {
+  const container = document.getElementById('login-history-list');
+  if (!container) return;
+  const profileFilter = document.getElementById('login-history-profile')?.value || '';
+  const from = document.getElementById('login-history-from')?.value || '';
+  const to = document.getElementById('login-history-to')?.value || '';
+  let events = loadLocalLoginEvents();
+
+  if (profileFilter) events = events.filter(e => String(e.profile_id) === String(profileFilter));
+  if (from) {
+    const fromTs = new Date(from + 'T00:00:00').toISOString();
+    events = events.filter(e => e.timestamp >= fromTs);
+  }
+  if (to) {
+    const toTs = new Date(to + 'T23:59:59').toISOString();
+    events = events.filter(e => e.timestamp <= toTs);
+  }
+
+  if (!events.length) {
+    container.innerHTML = '<div class="empty-stats">Keine Anmeldeereignisse gefunden.</div>';
+    return;
+  }
+
+  const rows = events.map(ev => `
+    <div class="question-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+        <div><strong>${escapeHtml(ev.display_name || ev.profile_id)}</strong><div style="color:var(--text-secondary)">${escapeHtml(ev.action)} • ${formatDateTimeIso(ev.timestamp)}</div></div>
+        <div style="text-align:right">${ev.synced ? '<span style="color:var(--success)">✓ synchronisiert</span>' : '<span style="color:var(--warning)">⧗ lokal</span>'}</div>
+      </div>
+    </div>
+  `).join('');
+
+  container.innerHTML = rows;
+}
+
+function populateLoginProfileFilter() {
+  const sel = document.getElementById('login-history-profile');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Alle</option>' + profiles.map(p => `<option value="${p.id}">${escapeHtml(p.display_name)}</option>`).join('');
+}
+
+function exportLoginHistoryCSV() {
+  let events = loadLocalLoginEvents();
+  if (!events.length) { alert('Keine Einträge zum Exportieren.'); return; }
+  const rows = [['profile_id','display_name','action','timestamp','synced']];
+  events.forEach(e => rows.push([e.profile_id, e.display_name, e.action, e.timestamp, e.synced ? '1' : '0']));
+  const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `login-events-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function uploadImageToStorage(file) {
   if (!file) return null;
 
@@ -364,6 +484,13 @@ async function init() {
   renderCategoryFilters();
   renderCategorySuggestions();
   renderQuestionsList();
+
+  // login history UI
+  populateLoginProfileFilter();
+  renderLoginHistory();
+  // try background sync for any pending events
+  syncPendingLoginEvents().catch(() => {});
+
   showLogin();
 }
 
@@ -412,6 +539,10 @@ loginForm.addEventListener('submit', async event => {
     localStorage.setItem('examAppProfileId', String(profile.id));
     currentUserLabel.textContent = `Angemeldet: ${profile.display_name}`;
     statsUserInfo.textContent = `Persönliche Lernergebnisse von ${profile.display_name}. ${favoriteQuestionIds.size} Fragen sind in deiner Merkliste.`;
+
+    // record login event (local + attempt sync)
+    try { recordLoginEvent({ profile_id: profile.id, display_name: profile.display_name }); } catch (e) { console.warn('Login-Event konnte nicht aufgezeichnet werden', e); }
+
     hideLogin();
     renderQuestionsList();
     renderStatistics();
@@ -446,10 +577,12 @@ function showSection(section) {
   editorSection.style.display = section === 'editor' ? 'block' : 'none';
   quizSection.style.display = section === 'quiz' ? 'block' : 'none';
   examSection.style.display = section === 'exam' ? 'block' : 'none';
+  loginHistorySection.style.display = section === 'logins' ? 'block' : 'none';
   statsSection.style.display = section === 'stats' ? 'block' : 'none';
   btnEditor.classList.toggle('active', section === 'editor');
   btnQuiz.classList.toggle('active', section === 'quiz');
   btnExam.classList.toggle('active', section === 'exam');
+  btnLogins.classList.toggle('active', section === 'logins');
   btnStats.classList.toggle('active', section === 'stats');
 }
 
@@ -461,6 +594,11 @@ btnQuiz.addEventListener('click', () => {
 btnExam.addEventListener('click', () => {
   showSection('exam');
   showExamStart();
+});
+btnLogins.addEventListener('click', () => {
+  showSection('logins');
+  populateLoginProfileFilter();
+  renderLoginHistory();
 });
 btnStats.addEventListener('click', () => {
   showSection('stats');
@@ -1095,6 +1233,31 @@ resetStatsBtn.addEventListener('click', async () => {
     alert('Die Statistik konnte nicht zurückgesetzt werden.');
   }
 });
+
+// Login history UI listeners
+const loginSyncBtn = document.getElementById('login-history-sync');
+const loginExportBtn = document.getElementById('login-history-export');
+const loginProfileFilter = document.getElementById('login-history-profile');
+const loginFromFilter = document.getElementById('login-history-from');
+const loginToFilter = document.getElementById('login-history-to');
+
+if (loginSyncBtn) loginSyncBtn.addEventListener('click', async () => {
+  loginSyncBtn.disabled = true;
+  try {
+    const pending = await syncPendingLoginEvents();
+    alert(`Synchronisation abgeschlossen. Ausstehende Einträge: ${pending}`);
+  } catch (e) {
+    console.error(e);
+    alert('Synchronisation fehlgeschlagen.');
+  } finally {
+    loginSyncBtn.disabled = false;
+  }
+});
+
+if (loginExportBtn) loginExportBtn.addEventListener('click', exportLoginHistoryCSV);
+if (loginProfileFilter) loginProfileFilter.addEventListener('change', renderLoginHistory);
+if (loginFromFilter) loginFromFilter.addEventListener('change', renderLoginHistory);
+if (loginToFilter) loginToFilter.addEventListener('change', renderLoginHistory);
 
 function getPerformance(question) {
   const stored = personalStats.get(Number(question.id));
