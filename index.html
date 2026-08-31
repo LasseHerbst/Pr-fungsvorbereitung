@@ -385,6 +385,36 @@
 </script>
 
 
+
+<script>
+// Temporary debug loader: fetch questions from Supabase and render minimal list for debugging
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const url = 'https://hhegggvsrcwyzbpyblxt.supabase.co/rest/v1/questions?select=id,text,category,image,answers,correct_index&order=created_at.desc&limit=100';
+    const res = await fetch(url, { headers: { apikey: 'sb_publishable_sv3o_ptV675_kwnGUYyVsg_u6JjFDxp', Authorization: 'Bearer sb_publishable_sv3o_ptV675_kwnGUYyVsg_u6JjFDxp' } });
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    const rows = await res.json();
+    const container = document.getElementById('questions-list');
+    if (!container) return;
+    if (!rows || !rows.length) {
+      container.innerHTML = '<div class="empty-stats">Keine Fragen gefunden (DB leer).</div>';
+      return;
+    }
+    const html = ['<div class="debug-questions"><h4>Debug: Gefundene Fragen ('+rows.length+')</h4><ul>'];
+    rows.forEach(q => {
+      const img = q.image ? `<div><a href="${q.image}" target="_blank">Bild</a></div>` : '';
+      html.push(`<li><strong>ID ${q.id}</strong> — ${(q.category||'')}<div>${q.text.replace(/
+/g,'<br/>')}</div>${img}</li>`);
+    });
+    html.push('</ul></div>');
+    container.innerHTML = html.join('');
+  } catch (err) {
+    console.error('Debug loader failed', err);
+    const container = document.getElementById('questions-list');
+    if (container) container.innerHTML = '<div class="form-error">Debug: Fragen konnten nicht geladen werden: '+String(err)+'</div>';
+  }
+});
+</script>
 <script src="script.js?v=20260831084907"></script>
 </body>
 </html>
