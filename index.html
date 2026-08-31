@@ -323,24 +323,57 @@
   </main>
 
   
+
 <script>
-// Minimal inline fallback to keep tabs, theme and simple login working if main JS fails
+// Enhanced inline fallback: tabs, theme, simple login + local login history
 (function(){
+  const FALLBACK_PROFILES = [
+    { id: 1, display_name: 'Lasse', pin_code: '4827' },
+    { id: 2, display_name: 'Marie', pin_code: '6159' },
+    { id: 3, display_name: 'Rico', pin_code: '7342' },
+    { id: 4, display_name: 'Janosch', pin_code: '9581' }
+  ];
   const $ = s => document.querySelector(s);
-  function setTheme(t){ document.documentElement.setAttribute('data-theme', t); document.querySelector('.theme-icon')?.textContent = t==='dark'?'☀️':'🌙'; localStorage.setItem('examAppTheme', t); }
+  function setTheme(t){ document.documentElement.setAttribute('data-theme', t); const icon = document.querySelector('.theme-icon'); if(icon) icon.textContent = t==='dark'?'☀️':'🌙'; localStorage.setItem('examAppTheme', t); }
   // restore theme
   const theme = localStorage.getItem('examAppTheme') || 'light'; setTheme(theme);
-  // simple showSection fallback
+
   function showSection(name){
     const map={editor:'#editor-section',quiz:'#quiz-section',exam:'#exam-section',logins:'#login-history-section',stats:'#stats-section'};
-    Object.entries(map).forEach(([k,sel])=>{ const el=document.querySelector(sel); if(!el) return; el.style.display = (k===name)?'block':'none'; document.getElementById('btn-'+(k==='logins'?'logins':k))?.classList.toggle('active', k===name); });
+    Object.entries(map).forEach(([k,sel])=>{ const el=document.querySelector(sel); if(!el) return; el.style.display = (k===name)?'block':'none'; const btn=document.getElementById('btn-'+(k==='logins'?'logins':k)); if(btn) btn.classList.toggle('active', k===name); });
   }
-  ['editor','quiz','exam','logins','stats'].forEach(k=>{ const btn=document.getElementById('btn-'+(k==='logins'?'logins':k)); if(btn) btn.addEventListener('click', ()=> showSection(k)); });
+
+  ['editor','quiz','exam','logins','stats'].forEach(k=>{ const id='btn-'+(k==='logins'?'logins':k); const btn=document.getElementById(id); if(btn) btn.addEventListener('click', ()=> showSection(k)); });
   document.getElementById('theme-toggle')?.addEventListener('click', ()=> setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'));
-  // show editor by default
-  document.addEventListener('DOMContentLoaded', ()=> showSection('editor'));
+
+  // Simple login fallback
+  const loginOverlay = $('#login-overlay');
+  const loginForm = $('#login-form');
+  const loginName = $('#login-name');
+  const loginPin = $('#login-pin');
+  const currentUserLabel = $('#current-user-label');
+  function fillLoginNames(){ loginName.innerHTML = '<option value="">Name auswählen …</option>' + FALLBACK_PROFILES.map(p=>`<option value="${p.id}">${p.display_name}</option>`).join(''); }
+  function hideLogin(){ if(loginOverlay) loginOverlay.style.display='none'; }
+  function showLogin(){ if(loginOverlay) loginOverlay.style.display='block'; }
+
+  function loadLocalLoginEvents(){ try{ return JSON.parse(localStorage.getItem('loginEvents')||'[]'); }catch(e){return[]} }
+  function saveLocalLoginEvents(events){ try{ localStorage.setItem('loginEvents', JSON.stringify(events)); }catch(e){} }
+  function addLocalLoginEvent(ev){ const events=loadLocalLoginEvents(); const entry=Object.assign({ timestamp:new Date().toISOString(), action:'login', synced:false }, ev); events.unshift(entry); saveLocalLoginEvents(events); return entry; }
+  function renderLoginHistory(){ const container = $('#login-history-list'); if(!container) return; const events = loadLocalLoginEvents(); if(!events.length){ container.innerHTML='<div class="empty-stats">Keine Anmeldeereignisse gefunden.</div>'; return;} container.innerHTML = events.map(ev=>`<div class="question-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;"><div><strong>${ev.display_name||ev.profile_id}</strong><div style="color:var(--text-secondary)">${ev.action} • ${new Date(ev.timestamp).toLocaleString()}</div></div><div style="text-align:right">${ev.synced?'<span style="color:var(--success)">✓ synchronisiert</span>':'<span style="color:var(--warning)">⧗ lokal</span>'}</div></div></div>`).join(''); }
+
+  // populate login filter select
+  function populateLoginProfileFilter(){ const sel = $('#login-history-profile'); if(!sel) return; sel.innerHTML = '<option value="">Alle</option>' + FALLBACK_PROFILES.map(p=>`<option value="${p.id}">${p.display_name}</option>`).join(''); }
+
+  // handle login form
+  loginForm?.addEventListener('submit', function(e){ e.preventDefault(); const id = loginName.value; const pin = loginPin.value.trim(); if(!id || !pin){ alert('Wähle Namen und PIN'); return; } const profile = FALLBACK_PROFILES.find(p=>String(p.id)===String(id)); if(!profile || profile.pin_code!==pin){ alert('Name oder PIN ist nicht korrekt.'); loginPin.value=''; return; } currentUserLabel.textContent = `Angemeldet: ${profile.display_name}`; localStorage.setItem('examAppProfileId', String(profile.id)); addLocalLoginEvent({ profile_id: profile.id, display_name: profile.display_name }); renderLoginHistory(); hideLogin(); });
+
+  // init
+  document.addEventListener('DOMContentLoaded', ()=>{
+    fillLoginNames(); populateLoginProfileFilter(); renderLoginHistory(); showSection('editor');
+  });
 })();
 </script>
+
 <script src="script.js?v=20260831074412"></script>
 </body>
 </html>
