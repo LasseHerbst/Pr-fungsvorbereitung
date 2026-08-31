@@ -94,38 +94,6 @@ async function api(path, options = {}) {
     headers: {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-      ...(options.headers || {})
-    },
-    body: JSON.stringify({
-      profile_id: currentProfile.id,
-      question_id: questionId,
-      correct_count: stats.correct,
-      wrong_count: stats.wrong,
-      last_answered_at: new Date().toISOString()
-    })
-  });
-}
-
-async function resetPersonalStats() {
-  await api(`user_question_stats?profile_id=eq.${currentProfile.id}`, { method: 'DELETE' });
-  personalStats = new Map();
-}
-
-async function uploadImageToStorage(file) {
-  if (!file) return null;
-
-  const compressedImage = await compressImage(file);
-  const extension = compressedImage.type === 'image/png' ? 'png' : 'jpg';
-  const fileName = `${Date.now()}-${crypto.randomUUID()}.${extension}`;
-  const objectPath = `questions/${fileName}`;
-
-  const response = await fetch(`${SUPABASE_URL}/storage/v1/object/${IMAGE_BUCKET}/${objectPath}`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_KEY,
- `Bearer ${SUPABASE_KEY}`,
       'Content-Type': compressedImage.type,
       'x-upsert': 'false'
     },
