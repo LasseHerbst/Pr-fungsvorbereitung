@@ -322,6 +322,7 @@
     </section>
   </main>
 
+<<<<<<< HEAD
   <script>
   // Debug loader: load questions directly from Supabase to ensure data is visible
   document.addEventListener('DOMContentLoaded', async () => {
@@ -351,5 +352,101 @@
   });
   </script>
   <script src="script.js?v=20260831090000"></script>
+=======
+  
+
+
+<script>
+// Enhanced inline fallback: tabs, theme, simple login + local login history (full profiles + admin-only login history)
+(function(){
+  const FALLBACK_PROFILES = [
+    { id: 1, display_name: 'Lasse', pin_code: '4827' },
+    { id: 2, display_name: 'Marie', pin_code: '6159' },
+    { id: 3, display_name: 'Rico', pin_code: '7342' },
+    { id: 4, display_name: 'Janosch', pin_code: '9581' },
+    { id: 5, display_name: 'Elias', pin_code: '3468' },
+    { id: 6, display_name: 'Etienne', pin_code: '8274' },
+    { id: 7, display_name: 'Reinhard', pin_code: '5693' },
+    { id: 8, display_name: 'Nist', pin_code: '2146' }
+  ];
+  const ADMIN_PROFILE_ID = 1; // only this profile sees the full login history
+  const $ = s => document.querySelector(s);
+  function setTheme(t){ document.documentElement.setAttribute('data-theme', t); const icon = document.querySelector('.theme-icon'); if(icon) icon.textContent = t==='dark'?'☀️':'🌙'; localStorage.setItem('examAppTheme', t); }
+  const theme = localStorage.getItem('examAppTheme') || 'light'; setTheme(theme);
+
+  function showSection(name){
+    const map={editor:'#editor-section',quiz:'#quiz-section',exam:'#exam-section',logins:'#login-history-section',stats:'#stats-section'};
+    Object.entries(map).forEach(([k,sel])=>{ const el=document.querySelector(sel); if(!el) return; el.style.display = (k===name)?'block':'none'; const btn=document.getElementById('btn-'+(k==='logins'?'logins':k)); if(btn) btn.classList.toggle('active', k===name); });
+  }
+
+  ['editor','quiz','exam','logins','stats'].forEach(k=>{ const id='btn-'+(k==='logins'?'logins':k); const btn=document.getElementById(id); if(btn) btn.addEventListener('click', ()=> showSection(k)); });
+  document.getElementById('theme-toggle')?.addEventListener('click', ()=> setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'));
+
+  // Simple login fallback
+  const loginOverlay = $('#login-overlay');
+  const loginForm = $('#login-form');
+  const loginName = $('#login-name');
+  const loginPin = $('#login-pin');
+  const currentUserLabel = $('#current-user-label');
+
+  function fillLoginNames(){ loginName.innerHTML = '<option value="">Name auswählen …</option>' + FALLBACK_PROFILES.map(p=>`<option value="${p.id}">${p.display_name}</option>`).join(''); }
+  function hideLogin(){ if(loginOverlay) loginOverlay.style.display='none'; }
+  function showLogin(){ if(loginOverlay) loginOverlay.style.display='block'; }
+
+  function loadLocalLoginEvents(){ try{ return JSON.parse(localStorage.getItem('loginEvents')||'[]'); }catch(e){return[]} }
+  function saveLocalLoginEvents(events){ try{ localStorage.setItem('loginEvents', JSON.stringify(events)); }catch(e){} }
+  function addLocalLoginEvent(ev){ const events=loadLocalLoginEvents(); const entry=Object.assign({ timestamp:new Date().toISOString(), action:'login', synced:false }, ev); events.unshift(entry); saveLocalLoginEvents(events); return entry; }
+  function renderLoginHistory(){ const container = $('#login-history-list'); if(!container) return; const events = loadLocalLoginEvents(); if(!events.length){ container.innerHTML='<div class="empty-stats">Keine Anmeldeereignisse gefunden.</div>'; return;} container.innerHTML = events.map(ev=>`<div class="question-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;"><div><strong>${ev.display_name||ev.profile_id}</strong><div style="color:var(--text-secondary)">${ev.action} • ${new Date(ev.timestamp).toLocaleString()}</div></div><div style="text-align:right">${ev.synced?'<span style="color:var(--success)">✓ synchronisiert</span>':'<span style="color:var(--warning)">⧗ lokal</span>'}</div></div></div>`).join(''); }
+
+  function populateLoginProfileFilter(){ const sel = $('#login-history-profile'); if(!sel) return; sel.innerHTML = '<option value="">Alle</option>' + FALLBACK_PROFILES.map(p=>`<option value="${p.id}">${p.display_name}</option>`).join(''); }
+
+  loginForm?.addEventListener('submit', function(e){ e.preventDefault(); const id = loginName.value; const pin = loginPin.value.trim(); if(!id || !pin){ alert('Wähle Namen und PIN'); return; } const profile = FALLBACK_PROFILES.find(p=>String(p.id)===String(id)); if(!profile || profile.pin_code!==pin){ alert('Name oder PIN ist nicht korrekt.'); loginPin.value=''; return; } currentUserLabel.textContent = `Angemeldet: ${profile.display_name}`; localStorage.setItem('examAppProfileId', String(profile.id)); addLocalLoginEvent({ profile_id: profile.id, display_name: profile.display_name }); renderLoginHistory(); hideLogin();
+    // show/hide login-history access
+    const loginsBtn = document.getElementById('btn-logins');
+    const loginHistorySection = document.getElementById('login-history-section');
+    if(Number(profile.id) === ADMIN_PROFILE_ID){ if(loginsBtn) loginsBtn.style.display='inline-block'; if(loginHistorySection) loginHistorySection.style.display='block'; } else { if(loginsBtn) loginsBtn.style.display='none'; if(loginHistorySection) loginHistorySection.style.display='none'; }
+  });
+
+  document.addEventListener('DOMContentLoaded', ()=>{ fillLoginNames(); populateLoginProfileFilter(); renderLoginHistory(); // hide login history by default for non-admin
+    const savedProfileId = localStorage.getItem('examAppProfileId');
+    if(savedProfileId && Number(savedProfileId)===ADMIN_PROFILE_ID){ (function(el){ if(el) el.style.display = 'inline-block'; })(document.getElementById('btn-logins')); } else { (function(el){ if(el) el.style.display = 'none'; })(document.getElementById('btn-logins')); (function(el){ if(el) el.style.display = 'none'; })(document.getElementById('login-history-section')); }
+    showSection('editor');
+  });
+})();
+</script>
+
+
+
+<script>
+// Temporary debug loader: fetch questions from Supabase and render minimal list for debugging
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const url = 'https://hhegggvsrcwyzbpyblxt.supabase.co/rest/v1/questions?select=id,text,category,image,answers,correct_index&order=created_at.desc&limit=100';
+    const res = await fetch(url, { headers: { apikey: 'sb_publishable_sv3o_ptV675_kwnGUYyVsg_u6JjFDxp', Authorization: 'Bearer sb_publishable_sv3o_ptV675_kwnGUYyVsg_u6JjFDxp' } });
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    const rows = await res.json();
+    const container = document.getElementById('questions-list');
+    if (!container) return;
+    if (!rows || !rows.length) {
+      container.innerHTML = '<div class="empty-stats">Keine Fragen gefunden (DB leer).</div>';
+      return;
+    }
+    const html = ['<div class="debug-questions"><h4>Debug: Gefundene Fragen ('+rows.length+')</h4><ul>'];
+    rows.forEach(q => {
+      const img = q.image ? `<div><a href="${q.image}" target="_blank">Bild</a></div>` : '';
+      html.push(`<li><strong>ID ${q.id}</strong> — ${(q.category||'')}<div>${(q.text||'').replace(
+/g,'<br/>')}</div>${img}</li>`);
+    });
+    html.push('</ul></div>');
+    container.innerHTML = html.join('');
+  } catch (err) {
+    console.error('Debug loader failed', err);
+    const container = document.getElementById('questions-list');
+    if (container) container.innerHTML = '<div class="form-error">Debug: Fragen konnten nicht geladen werden: '+String(err)+'</div>';
+  }
+});
+</script>
+<script src="script.js?v=20260831084907"></script>
+>>>>>>> 344e2469011d1991a098e400e8a94a6cb218f7b9
 </body>
 </html>
