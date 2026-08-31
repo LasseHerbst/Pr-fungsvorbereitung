@@ -93,7 +93,7 @@ async function api(path, options = {}) {
     ...options,
     headers: {
       apikey: SUPABASE_KEY,
- `Bearer ${SUPABASE_KEY}`,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
       'Content-Type': 'application/json',
       Prefer: 'return=representation',
       ...(options.headers || {})
