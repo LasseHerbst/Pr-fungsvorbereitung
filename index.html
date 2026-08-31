@@ -322,6 +322,25 @@
     </section>
   </main>
 
-  <script src="script.js"></script>
+  
+<script>
+// Minimal inline fallback to keep tabs, theme and simple login working if main JS fails
+(function(){
+  const $ = s => document.querySelector(s);
+  function setTheme(t){ document.documentElement.setAttribute('data-theme', t); document.querySelector('.theme-icon')?.textContent = t==='dark'?'☀️':'🌙'; localStorage.setItem('examAppTheme', t); }
+  // restore theme
+  const theme = localStorage.getItem('examAppTheme') || 'light'; setTheme(theme);
+  // simple showSection fallback
+  function showSection(name){
+    const map={editor:'#editor-section',quiz:'#quiz-section',exam:'#exam-section',logins:'#login-history-section',stats:'#stats-section'};
+    Object.entries(map).forEach(([k,sel])=>{ const el=document.querySelector(sel); if(!el) return; el.style.display = (k===name)?'block':'none'; document.getElementById('btn-'+(k==='logins'?'logins':k))?.classList.toggle('active', k===name); });
+  }
+  ['editor','quiz','exam','logins','stats'].forEach(k=>{ const btn=document.getElementById('btn-'+(k==='logins'?'logins':k)); if(btn) btn.addEventListener('click', ()=> showSection(k)); });
+  document.getElementById('theme-toggle')?.addEventListener('click', ()=> setTheme(document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark'));
+  // show editor by default
+  document.addEventListener('DOMContentLoaded', ()=> showSection('editor'));
+})();
+</script>
+<script src="script.js"></script>
 </body>
 </html>
