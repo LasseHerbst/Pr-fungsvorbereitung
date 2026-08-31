@@ -125,7 +125,7 @@ async function uploadImageToStorage(file) {
     method: 'POST',
     headers: {
       apikey: SUPABASE_KEY,
- `Bearer ${SUPABASE_KEY}`,
+ `Bearer ${SUPABASE_KEY}`,
       'Content-Type': compressedImage.type,
       'x-upsert': 'false'
     },
