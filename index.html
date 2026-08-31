@@ -378,7 +378,7 @@
 
   document.addEventListener('DOMContentLoaded', ()=>{ fillLoginNames(); populateLoginProfileFilter(); renderLoginHistory(); // hide login history by default for non-admin
     const savedProfileId = localStorage.getItem('examAppProfileId');
-    if(savedProfileId && Number(savedProfileId)===ADMIN_PROFILE_ID){ document.getElementById('btn-logins')?.style.display='inline-block'; } else { document.getElementById('btn-logins')?.style.display='none'; document.getElementById('login-history-section')?.style.display='none'; }
+    if(savedProfileId && Number(savedProfileId)===ADMIN_PROFILE_ID){ (function(el){ if(el) el.style.display = 'inline-block'; })(document.getElementById('btn-logins')); } else { (function(el){ if(el) el.style.display = 'none'; })(document.getElementById('btn-logins')); (function(el){ if(el) el.style.display = 'none'; })(document.getElementById('login-history-section')); }
     showSection('editor');
   });
 })();
