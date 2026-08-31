@@ -94,19 +94,21 @@ async function api(path, options = {}) {
     headers: {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': compressedImage.type,
-      'x-upsert': 'false'
-    },
-    body: compressedImage
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+      ...(options.headers || {})
+    }
   });
 
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(error || 'Der Bild-Upload wurde von Supabase abgelehnt. Prüfe die Storage-Policies für den Bucket.');
+    throw new Error(error || `Datenbankfehler (${response.status})`);
   }
 
-  return `${SUPABASE_URL}/storage/v1/object/public/${IMAGE_BUCKET}/${objectPath}`;
+  const type = response.headers.get('content-type') || '';
+  return type.includes('application/json') ? response.json() : null;
 }
+
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
