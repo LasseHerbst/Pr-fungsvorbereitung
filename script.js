@@ -93,7 +93,7 @@ async function api(path, options = {}) {
     ...options,
     headers: {
       apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
+ `Bearer ${SUPABASE_KEY}`,
       'Content-Type': 'application/json',
       Prefer: 'return=representation',
       ...(options.headers || {})
@@ -254,7 +254,7 @@ async function uploadImageToStorage(file) {
     method: 'POST',
     headers: {
       apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
+ `Bearer ${SUPABASE_KEY}`,
       'Content-Type': compressedImage.type,
       'x-upsert': 'false'
     },
