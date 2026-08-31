@@ -685,7 +685,8 @@ addAnswerBtn.addEventListener('click', () => {
 answersContainer.addEventListener('click', event => {
   if (!event.target.classList.contains('remove-answer')) return;
   const rows = [...answersContainer.querySelectorAll('.answer-row')];
-  if (rows.length <= 2) return;
+  // keep at least 5 answer fields
+  if (rows.length <= 5) return;
   event.target.closest('.answer-row').remove();
   reindexAnswers();
   updateRemoveButtons();
@@ -693,7 +694,8 @@ answersContainer.addEventListener('click', event => {
 
 function updateRemoveButtons() {
   const rows = answersContainer.querySelectorAll('.answer-row');
-  rows.forEach(row => { row.querySelector('.remove-answer').disabled = rows.length <= 2; });
+  // Ensure at least 5 answer fields remain (minimum)
+  rows.forEach(row => { row.querySelector('.remove-answer').disabled = rows.length <= 5; });
 }
 
 function reindexAnswers() {
@@ -770,7 +772,24 @@ function resetAnswersToDefault() {
       <label class="correct-choice"><input type="radio" name="correct-answer" value="1" /> Richtig</label>
       <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
     </div>
+    <div class="answer-row">
+      <input type="text" class="answer-input" placeholder="Antwort 3" required />
+      <label class="correct-choice"><input type="radio" name="correct-answer" value="2" /> Richtig</label>
+      <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
+    </div>
+    <div class="answer-row">
+      <input type="text" class="answer-input" placeholder="Antwort 4" required />
+      <label class="correct-choice"><input type="radio" name="correct-answer" value="3" /> Richtig</label>
+      <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
+    </div>
+    <div class="answer-row">
+      <input type="text" class="answer-input" placeholder="Antwort 5" required />
+      <label class="correct-choice"><input type="radio" name="correct-answer" value="4" /> Richtig</label>
+      <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
+    </div>
   `;
+  reindexAnswers();
+  updateRemoveButtons();
 }
 
 clearFormBtn.addEventListener('click', () => {
