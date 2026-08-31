@@ -39,9 +39,13 @@ const themeToggle = $('#theme-toggle');
 
 const btnEditor = $('#btn-editor');
 const btnQuiz = $('#btn-quiz');
+const btnExam = $('#btn-exam');
+const btnLogins = $('#btn-logins');
 const btnStats = $('#btn-stats');
 const editorSection = $('#editor-section');
 const quizSection = $('#quiz-section');
+const examSection = $('#exam-section');
+const loginHistorySection = $('#login-history-section');
 const statsSection = $('#stats-section');
 
 const questionForm = $('#question-form');
@@ -74,6 +78,41 @@ const quizFeedback = $('#quiz-feedback');
 const nextQuestionBtn = $('#next-question');
 const quizResult = $('#quiz-result');
 const quizCategoryResult = $('#quiz-category-result');
+
+// Exam mode
+const examStart = $('#exam-start');
+const examActive = $('#exam-active');
+const examEnd = $('#exam-end');
+const examCategoryFilter = $('#exam-category-filter');
+const examModeFilter = $('#exam-mode-filter');
+const examDurationInput = $('#exam-duration');
+const startExamBtn = $('#start-exam');
+const quitExamBtn = $('#quit-exam');
+const restartExamBtn = $('#restart-exam');
+const examProgress = $('#exam-progress');
+const examCategoryBadge = $('#exam-category-badge');
+const examQuestionText = $('#exam-question-text');
+const examQuestionImage = $('#exam-question-image');
+const examAnswers = $('#exam-answers');
+const examFeedback = $('#exam-feedback');
+const examNextBtn = $('#exam-next');
+const examResult = $('#exam-result');
+const examCategoryResult = $('#exam-category-result');
+const examTimerDisplay = $('#exam-timer');
+const examPrintBtn = $('#exam-print');
+const examPrintAnswers = $('#exam-print-answers');
+
+let quizQueue = [];
+let quizResults = [];
+let currentQuestionIndex = 0;
+let score = 0;
+
+let examQueue = [];
+let examResults = [];
+let examQuestionIndex = 0;
+let examScore = 0;
+let examRemainingSeconds = 0;
+let examTimerInterval = null;
 
 const statsUserInfo = $('#stats-user-info');
 const statTotalQuestions = $('#stat-total-questions');
@@ -242,6 +281,124 @@ async function resetPersonalStats() {
   personalStats = new Map();
 }
 
+// --- Login event storage & sync (localStorage + Supabase)
+function loadLocalLoginEvents() {
+  try {
+    return JSON.parse(localStorage.getItem('loginEvents') || '[]');
+  } catch (e) {
+    console.warn('Fehler beim Laden lokaler Login-Events', e);
+    return [];
+  }
+}
+
+function saveLocalLoginEvents(events) {
+  try {
+    localStorage.setItem('loginEvents', JSON.stringify(events));
+  } catch (e) {
+    console.warn('Fehler beim Speichern lokaler Login-Events', e);
+  }
+}
+
+function addLocalLoginEvent(event) {
+  const events = loadLocalLoginEvents();
+  // ensure timestamp exists
+  const entry = Object.assign({ timestamp: new Date().toISOString(), action: 'login', synced: false }, event);
+  events.unshift(entry);
+  saveLocalLoginEvents(events);
+  return entry;
+}
+
+async function syncPendingLoginEvents() {
+  const events = loadLocalLoginEvents();
+  let changed = false;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev.synced) continue;
+    try {
+      // send to Supabase table 'login_events'
+      await api('login_events', {
+        method: 'POST',
+        body: JSON.stringify({ profile_id: ev.profile_id, display_name: ev.display_name, timestamp: ev.timestamp, action: ev.action })
+      });
+      ev.synced = true;
+      changed = true;
+    } catch (err) {
+      console.warn('Sync Login-Event fehlgeschlagen, wird später erneut versucht.', err);
+      // keep for retry
+    }
+  }
+
+  if (changed) saveLocalLoginEvents(events);
+  renderLoginHistory();
+  return events.filter(e => !e.synced).length;
+}
+
+function recordLoginEvent(event) {
+  const entry = addLocalLoginEvent(event);
+  renderLoginHistory();
+  // try syncing in background
+  syncPendingLoginEvents().catch(err => console.warn('Hintergrund-Sync fehlgeschlagen', err));
+  return entry;
+}
+
+function formatDateTimeIso(iso) {
+  try { return new Date(iso).toLocaleString('de-DE'); } catch { return iso; }
+}
+
+function renderLoginHistory() {
+  const container = document.getElementById('login-history-list');
+  if (!container) return;
+  const profileFilter = document.getElementById('login-history-profile')?.value || '';
+  const from = document.getElementById('login-history-from')?.value || '';
+  const to = document.getElementById('login-history-to')?.value || '';
+  let events = loadLocalLoginEvents();
+
+  if (profileFilter) events = events.filter(e => String(e.profile_id) === String(profileFilter));
+  if (from) {
+    const fromTs = new Date(from + 'T00:00:00').toISOString();
+    events = events.filter(e => e.timestamp >= fromTs);
+  }
+  if (to) {
+    const toTs = new Date(to + 'T23:59:59').toISOString();
+    events = events.filter(e => e.timestamp <= toTs);
+  }
+
+  if (!events.length) {
+    container.innerHTML = '<div class="empty-stats">Keine Anmeldeereignisse gefunden.</div>';
+    return;
+  }
+
+  const rows = events.map(ev => `
+    <div class="question-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+        <div><strong>${escapeHtml(ev.display_name || ev.profile_id)}</strong><div style="color:var(--text-secondary)">${escapeHtml(ev.action)} • ${formatDateTimeIso(ev.timestamp)}</div></div>
+        <div style="text-align:right">${ev.synced ? '<span style="color:var(--success)">✓ synchronisiert</span>' : '<span style="color:var(--warning)">⧗ lokal</span>'}</div>
+      </div>
+    </div>
+  `).join('');
+
+  container.innerHTML = rows;
+}
+
+function populateLoginProfileFilter() {
+  const sel = document.getElementById('login-history-profile');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Alle</option>' + profiles.map(p => `<option value="${p.id}">${escapeHtml(p.display_name)}</option>`).join('');
+}
+
+function exportLoginHistoryCSV() {
+  let events = loadLocalLoginEvents();
+  if (!events.length) { alert('Keine Einträge zum Exportieren.'); return; }
+  const rows = [['profile_id','display_name','action','timestamp','synced']];
+  events.forEach(e => rows.push([e.profile_id, e.display_name, e.action, e.timestamp, e.synced ? '1' : '0']));
+  const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `login-events-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function uploadImageToStorage(file) {
   if (!file) return null;
 
@@ -327,6 +484,13 @@ async function init() {
   renderCategoryFilters();
   renderCategorySuggestions();
   renderQuestionsList();
+
+  // login history UI
+  populateLoginProfileFilter();
+  renderLoginHistory();
+  // try background sync for any pending events
+  syncPendingLoginEvents().catch(() => {});
+
   showLogin();
 }
 
@@ -375,6 +539,10 @@ loginForm.addEventListener('submit', async event => {
     localStorage.setItem('examAppProfileId', String(profile.id));
     currentUserLabel.textContent = `Angemeldet: ${profile.display_name}`;
     statsUserInfo.textContent = `Persönliche Lernergebnisse von ${profile.display_name}. ${favoriteQuestionIds.size} Fragen sind in deiner Merkliste.`;
+
+    // record login event (local + attempt sync)
+    try { recordLoginEvent({ profile_id: profile.id, display_name: profile.display_name }); } catch (e) { console.warn('Login-Event konnte nicht aufgezeichnet werden', e); }
+
     hideLogin();
     renderQuestionsList();
     renderStatistics();
@@ -408,9 +576,13 @@ themeToggle.addEventListener('click', () => {
 function showSection(section) {
   editorSection.style.display = section === 'editor' ? 'block' : 'none';
   quizSection.style.display = section === 'quiz' ? 'block' : 'none';
+  examSection.style.display = section === 'exam' ? 'block' : 'none';
+  loginHistorySection.style.display = section === 'logins' ? 'block' : 'none';
   statsSection.style.display = section === 'stats' ? 'block' : 'none';
   btnEditor.classList.toggle('active', section === 'editor');
   btnQuiz.classList.toggle('active', section === 'quiz');
+  btnExam.classList.toggle('active', section === 'exam');
+  btnLogins.classList.toggle('active', section === 'logins');
   btnStats.classList.toggle('active', section === 'stats');
 }
 
@@ -418,6 +590,15 @@ btnEditor.addEventListener('click', () => showSection('editor'));
 btnQuiz.addEventListener('click', () => {
   showSection('quiz');
   showQuizStart();
+});
+btnExam.addEventListener('click', () => {
+  showSection('exam');
+  showExamStart();
+});
+btnLogins.addEventListener('click', () => {
+  showSection('logins');
+  populateLoginProfileFilter();
+  renderLoginHistory();
 });
 btnStats.addEventListener('click', () => {
   showSection('stats');
@@ -472,6 +653,7 @@ function renderCategorySuggestions() {
 function renderCategoryFilters() {
   const oldEditorValue = filterCategory.value;
   const oldQuizValue = quizCategoryFilter.value;
+  const oldExamValue = examCategoryFilter.value;
   const oldStatsValue = statsFilterCategory.value;
   const options = '<option value="">Alle Kategorien</option>' + categories
     .map(category => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`)
@@ -479,9 +661,11 @@ function renderCategoryFilters() {
 
   filterCategory.innerHTML = options;
   quizCategoryFilter.innerHTML = options;
+  examCategoryFilter.innerHTML = options;
   statsFilterCategory.innerHTML = options;
   filterCategory.value = categories.includes(oldEditorValue) ? oldEditorValue : '';
   quizCategoryFilter.value = categories.includes(oldQuizValue) ? oldQuizValue : '';
+  examCategoryFilter.value = categories.includes(oldExamValue) ? oldExamValue : '';
   statsFilterCategory.value = categories.includes(oldStatsValue) ? oldStatsValue : '';
 }
 
@@ -501,7 +685,8 @@ addAnswerBtn.addEventListener('click', () => {
 answersContainer.addEventListener('click', event => {
   if (!event.target.classList.contains('remove-answer')) return;
   const rows = [...answersContainer.querySelectorAll('.answer-row')];
-  if (rows.length <= 2) return;
+  // keep at least 5 answer fields
+  if (rows.length <= 5) return;
   event.target.closest('.answer-row').remove();
   reindexAnswers();
   updateRemoveButtons();
@@ -509,7 +694,8 @@ answersContainer.addEventListener('click', event => {
 
 function updateRemoveButtons() {
   const rows = answersContainer.querySelectorAll('.answer-row');
-  rows.forEach(row => { row.querySelector('.remove-answer').disabled = rows.length <= 2; });
+  // Ensure at least 5 answer fields remain (minimum)
+  rows.forEach(row => { row.querySelector('.remove-answer').disabled = rows.length <= 5; });
 }
 
 function reindexAnswers() {
@@ -586,7 +772,24 @@ function resetAnswersToDefault() {
       <label class="correct-choice"><input type="radio" name="correct-answer" value="1" /> Richtig</label>
       <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
     </div>
+    <div class="answer-row">
+      <input type="text" class="answer-input" placeholder="Antwort 3" required />
+      <label class="correct-choice"><input type="radio" name="correct-answer" value="2" /> Richtig</label>
+      <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
+    </div>
+    <div class="answer-row">
+      <input type="text" class="answer-input" placeholder="Antwort 4" required />
+      <label class="correct-choice"><input type="radio" name="correct-answer" value="3" /> Richtig</label>
+      <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
+    </div>
+    <div class="answer-row">
+      <input type="text" class="answer-input" placeholder="Antwort 5" required />
+      <label class="correct-choice"><input type="radio" name="correct-answer" value="4" /> Richtig</label>
+      <button type="button" class="remove-answer" aria-label="Antwort entfernen">&times;</button>
+    </div>
   `;
+  reindexAnswers();
+  updateRemoveButtons();
 }
 
 clearFormBtn.addEventListener('click', () => {
@@ -662,6 +865,12 @@ startQuizBtn.addEventListener('click', startQuiz);
 restartQuizBtn.addEventListener('click', startQuiz);
 quitQuizBtn.addEventListener('click', showQuizStart);
 nextQuestionBtn.addEventListener('click', nextQuestion);
+startExamBtn.addEventListener('click', startExam);
+restartExamBtn.addEventListener('click', startExam);
+quitExamBtn.addEventListener('click', showExamStart);
+examNextBtn.addEventListener('click', nextExamQuestion);
+if (examPrintBtn) examPrintBtn.addEventListener('click', printExam);
+window.addEventListener('beforeunload', () => stopExamTimer());
 
 function startQuiz() {
   let selected = quizCategoryFilter.value
@@ -760,6 +969,219 @@ function showQuestion() {
   });
 }
 
+// Timer and print helper functions for the exam simulation
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+function updateExamTimerDisplay() {
+  if (!examTimerDisplay) return;
+  examTimerDisplay.textContent = formatTime(examRemainingSeconds);
+  examTimerDisplay.setAttribute('aria-label', `Verbleibende Zeit ${examTimerDisplay.textContent}`);
+}
+
+function startExamTimer() {
+  stopExamTimer();
+  updateExamTimerDisplay();
+  examTimerInterval = setInterval(() => {
+    examRemainingSeconds--;
+    updateExamTimerDisplay();
+    if (examRemainingSeconds <= 0) {
+      stopExamTimer();
+      alert('Zeit abgelaufen. Die Prüfung ist beendet.');
+      showExamEnd();
+    }
+  }, 1000);
+}
+
+function stopExamTimer() {
+  if (examTimerInterval) { clearInterval(examTimerInterval); examTimerInterval = null; }
+}
+
+// Exam mode functions
+function startExam() {
+  let selected = examCategoryFilter.value
+    ? questions.filter(question => question.category === examCategoryFilter.value)
+    : [...questions];
+
+  if (examModeFilter.value === 'favorites') {
+    selected = selected.filter(question => isFavorite(question.id));
+  }
+
+  if (!selected.length) {
+    const message = examModeFilter.value === 'favorites'
+      ? 'Deine Merkliste enthält für diese Auswahl noch keine Fragen.'
+      : 'Für diese Auswahl gibt es keine Fragen.';
+    alert(message);
+    return;
+  }
+
+  if (examModeFilter.value === 'weak') selected = createWeakQueue(selected);
+
+  examQueue = shuffle(selected);
+  examResults = [];
+  examQuestionIndex = 0;
+  examScore = 0;
+
+  const minutes = examDurationInput && examDurationInput.value ? Math.max(1, Number(examDurationInput.value)) : 60;
+  examRemainingSeconds = Math.floor(minutes) * 60;
+  startExamTimer();
+
+  showExamActive();
+  showExamQuestion();
+}
+
+function showExamStart() {
+  examStart.style.display = 'block';
+  examActive.style.display = 'none';
+  examEnd.style.display = 'none';
+  stopExamTimer();
+}
+
+function showExamActive() {
+  examStart.style.display = 'none';
+  examActive.style.display = 'block';
+  examEnd.style.display = 'none';
+}
+
+function showExamEnd() {
+  stopExamTimer();
+  examStart.style.display = 'none';
+  examActive.style.display = 'none';
+  examEnd.style.display = 'block';
+  examResult.textContent = `Prüfung beendet: ${examScore} von ${examQueue.length} richtig.`;
+  renderExamCategoryResult();
+}
+
+function showExamQuestion() {
+  const question = examQueue[examQuestionIndex];
+  examProgress.textContent = `Frage ${examQuestionIndex + 1} von ${examQueue.length}`;
+  examCategoryBadge.textContent = question.category || '';
+  examQuestionText.textContent = question.text;
+
+  if (question.image) {
+    examQuestionImage.src = question.image;
+    examQuestionImage.style.display = 'block';
+  } else {
+    examQuestionImage.style.display = 'none';
+  }
+
+  examAnswers.innerHTML = '';
+  examFeedback.className = 'quiz-feedback';
+  examNextBtn.style.display = 'none';
+
+  question.answers.forEach((answer, index) => {
+    const button = document.createElement('button');
+    button.className = 'quiz-answer-btn';
+    button.type = 'button';
+    button.textContent = answer;
+    button.addEventListener('click', () => answerExamQuestion(index, button));
+    examAnswers.appendChild(button);
+  });
+}
+
+async function answerExamQuestion(answerIndex, clickedButton) {
+  const question = examQueue[examQuestionIndex];
+  const buttons = [...examAnswers.querySelectorAll('.quiz-answer-btn')];
+  buttons.forEach(button => { button.disabled = true; });
+
+  const correct = answerIndex === question.correctIndex;
+  const stats = getPerformance(question);
+
+  if (correct) {
+    stats.correct++;
+    examScore++;
+    clickedButton.classList.add('correct');
+    examFeedback.textContent = 'Richtig! 🎉';
+    examFeedback.className = 'quiz-feedback show correct';
+  } else {
+    stats.wrong++;
+    clickedButton.classList.add('wrong');
+    buttons[question.correctIndex]?.classList.add('correct');
+    examFeedback.textContent = 'Leider falsch. Die richtige Antwort ist markiert.';
+    examFeedback.className = 'quiz-feedback show wrong';
+  }
+
+  personalStats.set(Number(question.id), stats);
+  examResults.push({ category: question.category || 'Ohne Kategorie', correct });
+
+  try {
+    await savePersonalStat(question.id, stats);
+  } catch (error) {
+    console.error(error);
+  }
+
+  examNextBtn.style.display = 'inline-block';
+}
+
+function nextExamQuestion() {
+  examQuestionIndex++;
+  if (examQuestionIndex >= examQueue.length) showExamEnd();
+  else showExamQuestion();
+}
+
+function renderExamCategoryResult() {
+  const summary = {};
+  examResults.forEach(result => {
+    if (!summary[result.category]) summary[result.category] = { correct: 0, total: 0 };
+    summary[result.category].total++;
+    if (result.correct) summary[result.category].correct++;
+  });
+
+  const rows = Object.entries(summary)
+    .map(([category, data]) => `<li>${escapeHtml(category)}: ${data.correct}/${data.total} richtig</li>`)
+    .join('');
+
+  examCategoryResult.innerHTML = rows ? `<h4>Ergebnis nach Kategorien</h4><ul>${rows}</ul>` : '';
+}
+
+// Print current selection in an exam-friendly layout
+function printExam() {
+  let selected = examCategoryFilter.value
+    ? questions.filter(question => question.category === examCategoryFilter.value)
+    : [...questions];
+  if (examModeFilter.value === 'favorites') selected = selected.filter(question => isFavorite(question.id));
+  if (!selected.length) { alert('Keine Fragen für die aktuelle Auswahl zum Drucken.'); return; }
+
+  const includeAnswers = !!(examPrintAnswers && examPrintAnswers.checked);
+  const win = window.open('', '_blank');
+  if (!win) { alert('Popup-Blocker verhindert das Öffnen des Druckfensters.'); return; }
+
+  const style = `
+    body{font-family:Inter, Arial, sans-serif;padding:20px;color:#111}
+    h1{font-size:18px;margin-bottom:6px}
+    .question{page-break-inside:avoid;margin-bottom:18px}
+    .answers{margin-left:18px}
+    img{max-width:100%;height:auto;margin:8px 0}
+    .answer-item{margin:6px 0}
+    .answer-key{margin-top:24px;border-top:1px solid #ddd;padding-top:12px}
+  `;
+
+  const letters = ['A','B','C','D','E','F'];
+  const body = [`<html><head><title>Prüfungsbogen</title><style>${style}</style></head><body><h1>Prüfungsbogen — ${new Date().toLocaleString('de-DE')}</h1>`];
+
+  selected.forEach((q, idx) => {
+    body.push(`<div class="question"><strong>Frage ${idx+1}:</strong><p>${escapeHtml(q.text)}</p>`);
+    if (q.image) body.push(`<img src="${q.image}" alt="Fragebild" />`);
+    body.push('<ol class="answers" type="A">');
+    q.answers.forEach((a, i) => body.push(`<li class="answer-item">${escapeHtml(a)}</li>`));
+    body.push('</ol></div>');
+  });
+
+  if (includeAnswers) {
+    body.push('<div class="answer-key"><h2>Antwortschlüssel</h2><ol>');
+    selected.forEach((q) => body.push(`<li>${letters[q.correctIndex] || q.correctIndex}</li>`));
+    body.push('</ol></div>');
+  }
+
+  body.push('</body></html>');
+  win.document.open(); win.document.write(body.join('')); win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 300);
+}
+
 async function answerQuestion(answerIndex, clickedButton) {
   const question = quizQueue[currentQuestionIndex];
   const buttons = [...quizAnswers.querySelectorAll('.quiz-answer-btn')];
@@ -830,6 +1252,31 @@ resetStatsBtn.addEventListener('click', async () => {
     alert('Die Statistik konnte nicht zurückgesetzt werden.');
   }
 });
+
+// Login history UI listeners
+const loginSyncBtn = document.getElementById('login-history-sync');
+const loginExportBtn = document.getElementById('login-history-export');
+const loginProfileFilter = document.getElementById('login-history-profile');
+const loginFromFilter = document.getElementById('login-history-from');
+const loginToFilter = document.getElementById('login-history-to');
+
+if (loginSyncBtn) loginSyncBtn.addEventListener('click', async () => {
+  loginSyncBtn.disabled = true;
+  try {
+    const pending = await syncPendingLoginEvents();
+    alert(`Synchronisation abgeschlossen. Ausstehende Einträge: ${pending}`);
+  } catch (e) {
+    console.error(e);
+    alert('Synchronisation fehlgeschlagen.');
+  } finally {
+    loginSyncBtn.disabled = false;
+  }
+});
+
+if (loginExportBtn) loginExportBtn.addEventListener('click', exportLoginHistoryCSV);
+if (loginProfileFilter) loginProfileFilter.addEventListener('change', renderLoginHistory);
+if (loginFromFilter) loginFromFilter.addEventListener('change', renderLoginHistory);
+if (loginToFilter) loginToFilter.addEventListener('change', renderLoginHistory);
 
 function getPerformance(question) {
   const stored = personalStats.get(Number(question.id));
