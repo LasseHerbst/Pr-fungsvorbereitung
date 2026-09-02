@@ -807,8 +807,38 @@ function saveLoginEvents(events) {
 
 function addLoginEvent(profile) {
   const events = loadLoginEvents();
-  events.unshift({ profileId: profile.id, displayName: profile.display_name, timestamp: new Date().toISOString() });
+  const entry = { profileId: profile.id, displayName: profile.display_name, timestamp: new Date().toISOString(), synced: false };
+  events.unshift(entry);
   saveLoginEvents(events.slice(0, 500));
+  // Try to sync to Supabase (login_events). If table/policies are not present this will silently fail.
+  (async () => {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/login_events`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation'
+        },
+        body: JSON.stringify({ profile_id: entry.profileId, display_name: entry.displayName, action: 'login', timestamp: entry.timestamp })
+      });
+      if (res.ok) {
+        // mark synced locally
+        const all = loadLoginEvents();
+        const idx = all.findIndex(e => e.timestamp === entry.timestamp && e.profileId === entry.profileId);
+        if (idx !== -1) {
+          all[idx].synced = true;
+          saveLoginEvents(all);
+          renderLoginHistory();
+        }
+      } else {
+        console.warn('Login sync rejected', await res.text().catch(() => null));
+      }
+    } catch (err) {
+      console.warn('Login sync failed', err);
+    }
+  })();
 }
 
 function renderLoginHistory() {
